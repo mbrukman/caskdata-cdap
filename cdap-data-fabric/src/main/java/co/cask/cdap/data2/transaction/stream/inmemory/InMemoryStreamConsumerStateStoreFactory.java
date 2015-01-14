@@ -19,15 +19,12 @@ package co.cask.cdap.data2.transaction.stream.inmemory;
 import co.cask.cdap.common.conf.CConfiguration;
 import co.cask.cdap.data.Namespace;
 import co.cask.cdap.data2.datafabric.DefaultDatasetNamespace;
-import co.cask.cdap.data2.dataset2.lib.table.inmemory.InMemoryOrderedTable;
-import co.cask.cdap.data2.dataset2.lib.table.inmemory.InMemoryOrderedTableService;
-import co.cask.cdap.data2.dataset2.lib.table.leveldb.LevelDBOrderedTableCore;
-import co.cask.cdap.data2.dataset2.lib.table.leveldb.LevelDBOrderedTableService;
+import co.cask.cdap.data2.dataset2.lib.table.inmemory.InMemoryTable;
+import co.cask.cdap.data2.dataset2.lib.table.inmemory.InMemoryTableService;
 import co.cask.cdap.data2.transaction.queue.QueueConstants;
 import co.cask.cdap.data2.transaction.stream.StreamConfig;
 import co.cask.cdap.data2.transaction.stream.StreamConsumerStateStore;
 import co.cask.cdap.data2.transaction.stream.StreamConsumerStateStoreFactory;
-import co.cask.cdap.data2.transaction.stream.leveldb.LevelDBStreamConsumerStateStore;
 import com.google.inject.Inject;
 
 import java.io.IOException;
@@ -36,12 +33,12 @@ import java.io.IOException;
  * Factory for creating {@link StreamConsumerStateStore} in memory.
  */
 public final class InMemoryStreamConsumerStateStoreFactory implements StreamConsumerStateStoreFactory {
-  private final InMemoryOrderedTableService tableService;
+  private final InMemoryTableService tableService;
   private final String tableName;
-  private InMemoryOrderedTable table;
+  private InMemoryTable table;
 
   @Inject
-  InMemoryStreamConsumerStateStoreFactory(CConfiguration conf, InMemoryOrderedTableService tableService) {
+  InMemoryStreamConsumerStateStoreFactory(CConfiguration conf, InMemoryTableService tableService) {
     this.tableService = tableService;
     this.tableName = new DefaultDatasetNamespace(conf, Namespace.SYSTEM)
       .namespace(QueueConstants.STREAM_TABLE_PREFIX + ".state.store");
@@ -51,7 +48,7 @@ public final class InMemoryStreamConsumerStateStoreFactory implements StreamCons
   public synchronized StreamConsumerStateStore create(StreamConfig streamConfig) throws IOException {
     if (table == null) {
       tableService.create(tableName);
-      table = new InMemoryOrderedTable(tableName);
+      table = new InMemoryTable(tableName);
     }
     return new InMemoryStreamConsumerStateStore(streamConfig, table);
   }
