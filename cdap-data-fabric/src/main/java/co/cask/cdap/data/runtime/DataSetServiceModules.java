@@ -67,7 +67,7 @@ public class DataSetServiceModules {
   static {
     INMEMORY_DATASET_MODULES = Maps.newLinkedHashMap();
     // NOTE: order is important due to dependencies between modules
-    INMEMORY_DATASET_MODULES.put("orderedTable-memory", new InMemoryTableModule());
+    INMEMORY_DATASET_MODULES.put("table-memory", new InMemoryTableModule());
     INMEMORY_DATASET_MODULES.put("metricsTable-memory", new InMemoryMetricsTableModule());
     INMEMORY_DATASET_MODULES.put("core", new CoreDatasetsModule());
     INMEMORY_DATASET_MODULES.put("fileSet", new FileSetModule());
@@ -81,7 +81,7 @@ public class DataSetServiceModules {
       protected void configure() {
         // NOTE: order is important due to dependencies between modules
         Map<String, DatasetModule> defaultModules = Maps.newLinkedHashMap();
-        defaultModules.put("orderedTable-memory", new InMemoryTableModule());
+        defaultModules.put("table-memory", new InMemoryTableModule());
         defaultModules.put("metricsTable-memory", new InMemoryMetricsTableModule());
         defaultModules.put("core", new CoreDatasetsModule());
         defaultModules.put("aclTable", new ACLTableModule());
@@ -124,7 +124,7 @@ public class DataSetServiceModules {
       protected void configure() {
         // NOTE: order is important due to dependencies between modules
         Map<String, DatasetModule> defaultModules = Maps.newLinkedHashMap();
-        defaultModules.put("orderedTable-leveldb", new LevelDBTableModule());
+        defaultModules.put("table-leveldb", new LevelDBTableModule());
         defaultModules.put("metricsTable-leveldb", new LevelDBMetricsTableModule());
         defaultModules.put("core", new CoreDatasetsModule());
         defaultModules.put("fileSet", new FileSetModule());
@@ -169,7 +169,7 @@ public class DataSetServiceModules {
       protected void configure() {
         // NOTE: order is important due to dependencies between modules
         Map<String, DatasetModule> defaultModules = Maps.newLinkedHashMap();
-        defaultModules.put("orderedTable-hbase", new HBaseTableModule());
+        defaultModules.put("table-hbase", new HBaseTableModule());
         defaultModules.put("metricsTable-hbase", new HBaseMetricsTableModule());
         defaultModules.put("core", new CoreDatasetsModule());
         defaultModules.put("fileSet", new FileSetModule());
