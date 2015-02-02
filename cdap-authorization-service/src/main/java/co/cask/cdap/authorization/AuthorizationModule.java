@@ -18,10 +18,8 @@ package co.cask.cdap.authorization;
 
 import co.cask.common.authorization.ACLStore;
 import co.cask.common.authorization.InMemoryACLStore;
-import co.cask.common.authorization.NoopACLStore;
 import co.cask.common.authorization.client.AuthorizationClient;
 import co.cask.common.authorization.client.DefaultAuthorizationClient;
-import co.cask.common.authorization.client.NoopAuthorizationClient;
 import com.google.inject.AbstractModule;
 import com.google.inject.Module;
 
@@ -44,9 +42,8 @@ public class AuthorizationModule {
     return new AbstractModule() {
       @Override
       protected void configure() {
-        // TODO: implement AuthorizationClient and ACLStore for standalone
-        bind(AuthorizationClient.class).to(NoopAuthorizationClient.class);
-        bind(ACLStore.class).to(NoopACLStore.class);
+        bind(AuthorizationClient.class).to(DefaultAuthorizationClient.class);
+        bind(ACLStore.class).to(ACLStoreTable.class);
       }
     };
   }
@@ -56,7 +53,7 @@ public class AuthorizationModule {
       @Override
       protected void configure() {
         bind(AuthorizationClient.class).to(DefaultAuthorizationClient.class);
-        bind(ACLStore.class).to(HBaseACLStore.class);
+        bind(ACLStore.class).to(ACLStoreTable.class);
       }
     };
   }

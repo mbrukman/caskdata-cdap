@@ -14,24 +14,15 @@
  * the License.
  */
 
-package co.cask.cdap.api.security;
+package co.cask.cdap.data2.dataset2.lib.table;
 
-import com.google.common.collect.Lists;
-
-import java.util.List;
+import co.cask.cdap.api.annotation.Beta;
+import co.cask.cdap.api.dataset.Dataset;
+import co.cask.common.authorization.ACLStore;
 
 /**
- * Utility functions for {@link Principals}.
+ * A dataset that stores ACLs.
  */
-public final class Principals {
-
-  private Principals() { }
-
-  public static List<Principal> fromIds(PrincipalType type, List<String> ids) {
-    List<Principal> result = Lists.newArrayList();
-    for (String id : ids) {
-      result.add(new Principal(type, id));
-    }
-    return result;
-  }
+@Beta
+public interface ACLStoreTable extends Dataset, ACLStore {
 }

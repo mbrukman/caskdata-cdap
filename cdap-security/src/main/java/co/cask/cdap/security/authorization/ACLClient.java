@@ -16,9 +16,6 @@
 
 package co.cask.cdap.security.authorization;
 
-import co.cask.cdap.api.security.ACL;
-import co.cask.cdap.api.security.EntityId;
-import co.cask.cdap.api.security.PermissionType;
 import co.cask.cdap.common.conf.Constants;
 import co.cask.cdap.common.discovery.RandomEndpointStrategy;
 import co.cask.common.http.HttpMethod;

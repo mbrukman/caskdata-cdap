@@ -175,6 +175,7 @@
     <module>cdap-integration-test</module>
     <module>cdap-adapters</module>
     <module>cdap-authorization</module>
+    <module>cdap-authorization-service</module>
   </modules>
 
   <dependencyManagement>

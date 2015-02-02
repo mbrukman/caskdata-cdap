@@ -17,7 +17,7 @@
 package co.cask.cdap.security.authorization;
 
 import co.cask.cdap.api.dataset.DatasetProperties;
-import co.cask.cdap.api.dataset.lib.ACLTable;
+import co.cask.cdap.data2.dataset2.lib.table.ACLStoreTable;
 import co.cask.cdap.common.conf.Constants;
 import co.cask.cdap.data2.datafabric.dataset.DatasetsUtil;
 import co.cask.cdap.data2.dataset2.DatasetFramework;
@@ -36,7 +36,7 @@ import java.net.InetSocketAddress;
 import javax.inject.Inject;
 
 /**
- * Exposes the system {@link ACLTable} via REST endpoints using {@link ACLHandler}.
+ * Exposes the system {@link co.cask.cdap.data2.dataset2.lib.table.ACLStoreTable} via REST endpoints using {@link ACLHandler}.
  */
 public class ACLService extends AbstractIdleService {
 
@@ -63,11 +63,11 @@ public class ACLService extends AbstractIdleService {
     LOG.info("Starting ACLService");
 
     // TODO: don't use dsFramework until dataset service is available
-    ACLTable aclTable = DatasetsUtil.getOrCreateDataset(dsFramework, ACL_TABLE_NAME, ACLTable.class.getName(),
+    ACLStoreTable aclStoreTable = DatasetsUtil.getOrCreateDataset(dsFramework, ACL_TABLE_NAME, ACLStoreTable.class.getName(),
                                                         DatasetProperties.EMPTY, null, null);
 
     service = NettyHttpService.builder()
-      .addHttpHandlers(ImmutableList.<HttpHandler>of(new ACLHandler(aclTable)))
+      .addHttpHandlers(ImmutableList.<HttpHandler>of(new ACLHandler(aclStoreTable)))
       .build();
     service.startAndWait();
 

@@ -13,9 +13,8 @@
  * License for the specific language governing permissions and limitations under
  * the License.
  */
-package co.cask.common.authorization.client;
+package co.cask.cdap.authorization;
 
-import co.cask.cdap.authorization.ACLManagerService;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Supplier;
 import com.google.inject.Inject;

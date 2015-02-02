@@ -18,17 +18,11 @@ package co.cask.cdap.security.authorization;
 
 import co.cask.cdap.api.dataset.module.DatasetDefinitionRegistry;
 import co.cask.cdap.api.dataset.module.DatasetModule;
-import co.cask.cdap.api.security.ACL;
-import co.cask.cdap.api.security.EntityId;
-import co.cask.cdap.api.security.EntityType;
-import co.cask.cdap.api.security.PermissionType;
-import co.cask.cdap.api.security.Principal;
-import co.cask.cdap.api.security.PrincipalType;
 import co.cask.cdap.data2.dataset2.DatasetDefinitionRegistryFactory;
 import co.cask.cdap.data2.dataset2.DatasetFramework;
 import co.cask.cdap.data2.dataset2.InMemoryDatasetDefinitionRegistry;
 import co.cask.cdap.data2.dataset2.InMemoryDatasetFramework;
-import co.cask.cdap.data2.dataset2.lib.table.ACLTableModule;
+import co.cask.cdap.data2.dataset2.lib.table.ACLStoreTableModule;
 import co.cask.cdap.data2.dataset2.lib.table.CoreDatasetsModule;
 import co.cask.cdap.data2.dataset2.module.lib.inmemory.InMemoryMetricsTableModule;
 import co.cask.cdap.data2.dataset2.module.lib.inmemory.InMemoryOrderedTableModule;
@@ -62,7 +56,7 @@ public class ACLServiceTest {
       "orderedTable-memory", new InMemoryOrderedTableModule(),
       "metricsTable-memory", new InMemoryMetricsTableModule(),
       "core", new CoreDatasetsModule(),
-      "acl", new ACLTableModule());
+      "acl", new ACLStoreTableModule());
     DatasetFramework datasetFramework = new InMemoryDatasetFramework(datasetDefinitionRegistry, defaultModules);
 
     ACLService aclService = new ACLService(datasetFramework, (DiscoveryService) discoveryService, discoveryService);

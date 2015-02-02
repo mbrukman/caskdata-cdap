@@ -21,24 +21,23 @@ import co.cask.cdap.api.dataset.DatasetAdmin;
 import co.cask.cdap.api.dataset.DatasetDefinition;
 import co.cask.cdap.api.dataset.DatasetProperties;
 import co.cask.cdap.api.dataset.DatasetSpecification;
-import co.cask.cdap.api.dataset.lib.ACLTable;
 import co.cask.cdap.api.dataset.lib.AbstractDatasetDefinition;
 import co.cask.cdap.api.dataset.lib.IndexedObjectStore;
 import co.cask.cdap.api.dataset.lib.ObjectStores;
-import co.cask.cdap.api.security.ACL;
+import co.cask.common.authorization.ACLEntry;
 import com.google.common.base.Throwables;
 
 import java.io.IOException;
 import java.util.Map;
 
 /**
- * {@link DatasetDefinition} for {@link ACLTable}.
+ * {@link DatasetDefinition} for {@link ACLStoreTable}.
  */
-public class ACLTableDefinition extends AbstractDatasetDefinition<ACLTable, DatasetAdmin> {
+public class ACLStoreTableDefinition extends AbstractDatasetDefinition<ACLStoreTable, DatasetAdmin> {
 
   private final DatasetDefinition<? extends IndexedObjectStore, ?> tableDefinition;
 
-  public ACLTableDefinition(String name, DatasetDefinition<? extends IndexedObjectStore, ?> tableDefinition) {
+  public ACLStoreTableDefinition(String name, DatasetDefinition<? extends IndexedObjectStore, ?> tableDefinition) {
     super(name);
     this.tableDefinition = tableDefinition;
   }
@@ -57,16 +56,16 @@ public class ACLTableDefinition extends AbstractDatasetDefinition<ACLTable, Data
   }
 
   @Override
-  public ACLTable getDataset(DatasetSpecification spec, Map<String, String> arguments,
+  public ACLStoreTable getDataset(DatasetSpecification spec, Map<String, String> arguments,
                              ClassLoader classLoader) throws IOException {
     DatasetSpecification tableSpec = spec.getSpecification("data");
-    IndexedObjectStore<ACL> data = tableDefinition.getDataset(tableSpec, arguments, classLoader);
-    return new ACLTableDataset(spec, data);
+    IndexedObjectStore<ACLEntry> data = tableDefinition.getDataset(tableSpec, arguments, classLoader);
+    return new ACLStoreTableDataset(spec, data);
   }
 
   private DatasetProperties getObjectStoreProperties() {
     try {
-      return ObjectStores.objectStoreProperties(ACL.class, DatasetProperties.EMPTY);
+      return ObjectStores.objectStoreProperties(ACLEntry.class, DatasetProperties.EMPTY);
     } catch (UnsupportedTypeException e) {
       throw Throwables.propagate(e);
     }

@@ -56,7 +56,7 @@ public interface ACLStore {
    * @param query specifies the {@link ACLEntry}s to read
    * @return the {@link ACLEntry}s that have the {@code object}.
    */
-  Set<ACLEntry> read(Query query) throws Exception;
+  Set<ACLEntry> search(Query query) throws Exception;
 
   /**
    * Deletes {@link ACLEntry}s matching the specified {@link Query}.

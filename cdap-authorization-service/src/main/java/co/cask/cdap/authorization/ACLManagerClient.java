@@ -13,7 +13,7 @@
  * License for the specific language governing permissions and limitations under
  * the License.
  */
-package co.cask.common.authorization.client;
+package co.cask.cdap.authorization;
 
 import co.cask.common.authorization.ACLEntry;
 import co.cask.common.authorization.ACLStore;

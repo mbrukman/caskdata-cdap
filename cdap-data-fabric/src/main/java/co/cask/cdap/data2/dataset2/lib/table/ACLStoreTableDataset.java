@@ -1,5 +1,5 @@
 /*
- * Copyright © 2015 Cask Data, Inc.
+ * Copyright © 2014 Cask Data, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not
  * use this file except in compliance with the License. You may obtain a copy of
@@ -14,17 +14,31 @@
  * the License.
  */
 
-package co.cask.cdap.authorization;
+package co.cask.cdap.data2.dataset2.lib.table;
 
+import co.cask.cdap.api.dataset.DatasetSpecification;
+import co.cask.cdap.api.dataset.lib.AbstractDataset;
+import co.cask.cdap.api.dataset.lib.IndexedObjectStore;
+import co.cask.cdap.api.dataset.module.EmbeddedDataset;
 import co.cask.common.authorization.ACLEntry;
-import co.cask.common.authorization.ACLStore;
+import com.google.gson.Gson;
 
 import java.util.Set;
 
 /**
- * HBase implementation of {@link ACLStore}.
+ * Dataset that manages a table of ACLs.
  */
-public class HBaseACLStore implements ACLStore {
+public class ACLStoreTableDataset extends AbstractDataset implements ACLStoreTable {
+
+  private static final Gson GSON = new Gson();
+
+  private final IndexedObjectStore<ACLEntry> store;
+
+  public ACLStoreTableDataset(DatasetSpecification spec,
+                              @EmbeddedDataset("acls") IndexedObjectStore<ACLEntry> store) {
+    super(spec.getName(), store);
+    this.store = store;
+  }
 
   @Override
   public void write(ACLEntry entry) throws Exception {
@@ -42,7 +56,7 @@ public class HBaseACLStore implements ACLStore {
   }
 
   @Override
-  public Set<ACLEntry> read(Query query) throws Exception {
+  public Set<ACLEntry> search(Query query) throws Exception {
     return null;
   }
 

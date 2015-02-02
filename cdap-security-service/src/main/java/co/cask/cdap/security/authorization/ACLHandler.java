@@ -16,14 +16,7 @@
 
 package co.cask.cdap.security.authorization;
 
-import co.cask.cdap.api.dataset.lib.ACLTable;
-import co.cask.cdap.api.security.ACL;
-import co.cask.cdap.api.security.EntityId;
-import co.cask.cdap.api.security.EntityType;
-import co.cask.cdap.api.security.PermissionType;
-import co.cask.cdap.api.security.Principal;
-import co.cask.cdap.api.security.PrincipalType;
-import co.cask.cdap.api.security.Principals;
+import co.cask.cdap.data2.dataset2.lib.table.ACLStoreTable;
 import co.cask.cdap.common.conf.Constants;
 import co.cask.http.AbstractHttpHandler;
 import co.cask.http.HttpResponder;
@@ -42,7 +35,7 @@ import javax.ws.rs.Path;
 import javax.ws.rs.PathParam;
 
 /**
- * Exposes the system {@link ACLTable} via REST endpoints.
+ * Exposes the system {@link co.cask.cdap.data2.dataset2.lib.table.ACLStoreTable} via REST endpoints.
  */
 @Path(Constants.Gateway.API_VERSION_2)
 public final class ACLHandler extends AbstractHttpHandler {
@@ -51,10 +44,10 @@ public final class ACLHandler extends AbstractHttpHandler {
   private static final Type LIST_ACL_TYPE = new TypeToken<List<ACL>>() { }.getType();
   private static final Type LIST_PERMISSION_TYPE = new TypeToken<List<PermissionType>>() { }.getType();
 
-  private final ACLTable aclTable;
+  private final ACLStoreTable aclStoreTable;
 
-  public ACLHandler(ACLTable aclTable) {
-    this.aclTable = aclTable;
+  public ACLHandler(ACLStoreTable aclStoreTable) {
+    this.aclStoreTable = aclStoreTable;
   }
 
   @GET
@@ -70,7 +63,7 @@ public final class ACLHandler extends AbstractHttpHandler {
 
     EntityType entityType = EntityType.fromPluralForm(entityTypeString);
     EntityId entityId = new EntityId(entityType, entityIdString);
-    responder.sendJson(HttpResponseStatus.OK, aclTable.getAcls(entityId), LIST_ACL_TYPE);
+    responder.sendJson(HttpResponseStatus.OK, aclStoreTable.getAcls(entityId), LIST_ACL_TYPE);
   }
 
   @GET
@@ -90,7 +83,7 @@ public final class ACLHandler extends AbstractHttpHandler {
 
     List<ACL> acls = Lists.newArrayList();
     Principal user = new Principal(PrincipalType.USER, userId);
-    List<ACL> userAcls = aclTable.getAcls(entityId, user);
+    List<ACL> userAcls = aclStoreTable.getAcls(entityId, user);
     if (!userAcls.isEmpty()) {
       // if ACLs exist for the user, only use those ACLs
       acls.addAll(userAcls);
@@ -98,7 +91,7 @@ public final class ACLHandler extends AbstractHttpHandler {
       // if no ACLs exist for the user, only use the user's group ACLs
       // TODO: get groups that user is in
       List<String> groups = Lists.newArrayList();
-      acls.addAll(aclTable.getAcls(entityId, Principals.fromIds(PrincipalType.GROUP, groups)));
+      acls.addAll(aclStoreTable.getAcls(entityId, Principals.fromIds(PrincipalType.GROUP, groups)));
     }
 
     responder.sendJson(HttpResponseStatus.OK, acls, LIST_ACL_TYPE);
@@ -121,7 +114,7 @@ public final class ACLHandler extends AbstractHttpHandler {
 
     List<PermissionType> permissions = GSON.fromJson(
       request.getContent().toString(Charsets.UTF_8), LIST_PERMISSION_TYPE);
-    aclTable.setAcl(new Principal(PrincipalType.USER, userId), entityId, permissions);
+    aclStoreTable.setAcl(new Principal(PrincipalType.USER, userId), entityId, permissions);
     responder.sendStatus(HttpResponseStatus.OK);
   }
 
@@ -142,7 +135,7 @@ public final class ACLHandler extends AbstractHttpHandler {
 
     List<PermissionType> permissions = GSON.fromJson(
       request.getContent().toString(Charsets.UTF_8), LIST_PERMISSION_TYPE);
-    aclTable.setAcl(new Principal(PrincipalType.GROUP, groupId), entityId, permissions);
+    aclStoreTable.setAcl(new Principal(PrincipalType.GROUP, groupId), entityId, permissions);
     responder.sendStatus(HttpResponseStatus.OK);
   }
 

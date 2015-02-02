@@ -18,21 +18,20 @@ package co.cask.cdap.data2.dataset2.lib.table;
 
 import co.cask.cdap.api.dataset.DatasetAdmin;
 import co.cask.cdap.api.dataset.DatasetDefinition;
-import co.cask.cdap.api.dataset.lib.ACLTable;
 import co.cask.cdap.api.dataset.lib.IndexedObjectStore;
 import co.cask.cdap.api.dataset.module.DatasetDefinitionRegistry;
 import co.cask.cdap.api.dataset.module.DatasetModule;
 
 /**
- * {@link DatasetModule} for {@link ACLTable}.
+ * {@link DatasetModule} for {@link ACLStoreTable}.
  */
-public class ACLTableModule implements DatasetModule {
+public class ACLStoreTableModule implements DatasetModule {
   @Override
   public void register(DatasetDefinitionRegistry registry) {
     DatasetDefinition<IndexedObjectStore, DatasetAdmin> tableDefinition =
       registry.get(IndexedObjectStore.class.getName());
 
-    registry.add(new ACLTableDefinition("aclTable", tableDefinition));
-    registry.add(new ACLTableDefinition(ACLTable.class.getName(), tableDefinition));
+    registry.add(new ACLStoreTableDefinition("aclStoreTable", tableDefinition));
+    registry.add(new ACLStoreTableDefinition(ACLStoreTable.class.getName(), tableDefinition));
   }
 }

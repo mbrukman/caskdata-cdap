@@ -73,7 +73,7 @@ public class DefaultAuthorizationClient implements AuthorizationClient {
       try {
         // TODO: consider doing only a single aclStore call
         ACLStore.Query query = new ACLStore.Query(generateConditions(object, subjects, remainingRequiredPermission));
-        Set<ACLEntry> aclEntries = aclStore.read(query);
+        Set<ACLEntry> aclEntries = aclStore.search(query);
         for (ACLEntry aclEntry : aclEntries) {
           remainingRequiredPermission.remove(aclEntry.getPermission());
         }
@@ -108,7 +108,7 @@ public class DefaultAuthorizationClient implements AuthorizationClient {
     Set<Permission> remainingRequiredPermission = Sets.newHashSet(requiredPermissions);
     try {
       ACLStore.Query query = new ACLStore.Query(generateConditions(object, subjects, remainingRequiredPermission));
-      Set<ACLEntry> aclEntries = aclStore.read(query);
+      Set<ACLEntry> aclEntries = aclStore.search(query);
       for (ACLEntry aclEntry : aclEntries) {
         remainingRequiredPermission.remove(aclEntry.getPermission());
       }

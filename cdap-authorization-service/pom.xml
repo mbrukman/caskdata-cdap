@@ -24,48 +24,29 @@
   </parent>
   <modelVersion>4.0.0</modelVersion>
 
-  <artifactId>cdap-authorization</artifactId>
-  <name>CDAP Authorization</name>
+  <artifactId>cdap-authorization-service</artifactId>
+  <name>CDAP Authorization Service</name>
 
   <dependencies>
     <dependency>
       <groupId>co.cask.cdap</groupId>
-      <artifactId>cdap-api</artifactId>
+      <artifactId>cdap-authorization</artifactId>
       <version>${project.version}</version>
     </dependency>
     <dependency>
       <groupId>co.cask.cdap</groupId>
-      <artifactId>cdap-common</artifactId>
+      <artifactId>cdap-data-fabric</artifactId>
       <version>${project.version}</version>
     </dependency>
     <dependency>
-      <groupId>co.cask.tephra</groupId>
-      <artifactId>tephra-api</artifactId>
+      <groupId>javax.ws.rs</groupId>
+      <artifactId>javax.ws.rs-api</artifactId>
     </dependency>
     <dependency>
-      <groupId>co.cask.common</groupId>
-      <artifactId>common-http</artifactId>
+      <groupId>io.netty</groupId>
+      <artifactId>netty</artifactId>
     </dependency>
-    <dependency>
-      <groupId>com.google.guava</groupId>
-      <artifactId>guava</artifactId>
-    </dependency>
-    <dependency>
-      <groupId>com.google.code.gson</groupId>
-      <artifactId>gson</artifactId>
-    </dependency>
-    <dependency>
-      <groupId>org.slf4j</groupId>
-      <artifactId>slf4j-api</artifactId>
-    </dependency>
-    <dependency>
-      <groupId>com.google.code.findbugs</groupId>
-      <artifactId>jsr305</artifactId>
-    </dependency>
-    <dependency>
-      <groupId>com.google.inject</groupId>
-      <artifactId>guice</artifactId>
-    </dependency>
+
     <dependency>
       <groupId>junit</groupId>
       <artifactId>junit</artifactId>

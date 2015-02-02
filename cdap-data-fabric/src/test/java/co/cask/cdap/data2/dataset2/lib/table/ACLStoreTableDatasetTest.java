@@ -17,13 +17,6 @@
 package co.cask.cdap.data2.dataset2.lib.table;
 
 import co.cask.cdap.api.dataset.DatasetProperties;
-import co.cask.cdap.api.dataset.lib.ACLTable;
-import co.cask.cdap.api.security.ACL;
-import co.cask.cdap.api.security.EntityId;
-import co.cask.cdap.api.security.EntityType;
-import co.cask.cdap.api.security.PermissionType;
-import co.cask.cdap.api.security.Principal;
-import co.cask.cdap.api.security.PrincipalType;
 import co.cask.cdap.data2.dataset2.AbstractDatasetTest;
 import org.junit.Assert;
 import org.junit.Test;
@@ -31,16 +24,16 @@ import org.junit.Test;
 import java.util.List;
 
 /**
- * Test for {@link co.cask.cdap.data2.dataset2.lib.table.ACLTableDataset}.
+ * Test for {@link ACLStoreTableDataset}.
  */
-public class ACLTableDatasetTest extends AbstractDatasetTest {
+public class ACLStoreTableDatasetTest extends AbstractDatasetTest {
 
   @Test
   public void testBasics() throws Exception {
-    addModule("aclTableModule", new ACLTableModule());
+    addModule("aclTableModule", new ACLStoreTableModule());
 
-    createInstance(ACLTable.class.getName(), "myAclTable", DatasetProperties.EMPTY);
-    ACLTable myAclTable = getInstance("myAclTable");
+    createInstance(ACLStoreTable.class.getName(), "myAclTable", DatasetProperties.EMPTY);
+    ACLStoreTable myAclStoreTable = getInstance("myAclTable");
 
     final Principal bobUser = new Principal(PrincipalType.USER, "bob");
     final Principal bobGroup = new Principal(PrincipalType.GROUP, "bobs-only");
@@ -48,8 +41,8 @@ public class ACLTableDatasetTest extends AbstractDatasetTest {
     final EntityId secretEntity = new EntityId(EntityType.STREAM, "secretEntity");
 
     // set user ACL
-    myAclTable.setAcl(bobUser, secretEntity, PermissionType.READ, PermissionType.WRITE);
-    List<ACL> acls = myAclTable.getAcls(secretEntity);
+    myAclStoreTable.setAcl(bobUser, secretEntity, PermissionType.READ, PermissionType.WRITE);
+    List<ACL> acls = myAclStoreTable.getAcls(secretEntity);
     Assert.assertEquals(1, acls.size());
 
     Assert.assertEquals(2, acls.get(0).getPermissions().size());
@@ -58,8 +51,8 @@ public class ACLTableDatasetTest extends AbstractDatasetTest {
     Assert.assertTrue(acls.get(0).getPermissions().contains(PermissionType.WRITE));
 
     // set group ACL
-    myAclTable.setAcl(bobGroup, secretEntity, PermissionType.WRITE);
-    acls = myAclTable.getAcls(secretEntity);
+    myAclStoreTable.setAcl(bobGroup, secretEntity, PermissionType.WRITE);
+    acls = myAclStoreTable.getAcls(secretEntity);
     Assert.assertEquals(2, acls.size());
 
     ACL actualBobAcl;

@@ -23,8 +23,6 @@ import co.cask.common.authorization.InMemoryACLStore;
 import co.cask.common.authorization.ObjectId;
 import co.cask.common.authorization.Permission;
 import co.cask.common.authorization.SubjectId;
-import co.cask.common.authorization.client.ACLManagerClient;
-import co.cask.common.authorization.client.DiscoveringBaseURISupplier;
 import org.apache.twill.discovery.InMemoryDiscoveryService;
 import org.junit.After;
 import org.junit.Assert;

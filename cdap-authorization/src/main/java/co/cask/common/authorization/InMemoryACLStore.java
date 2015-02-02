@@ -43,7 +43,7 @@ public class InMemoryACLStore implements ACLStore {
   }
 
   @Override
-  public Set<ACLEntry> read(Query query) {
+  public Set<ACLEntry> search(Query query) {
     Set<ACLEntry> result = Sets.newHashSet();
     for (ACLEntry aclEntry : store) {
       for (Condition condition : query.getConditions()) {

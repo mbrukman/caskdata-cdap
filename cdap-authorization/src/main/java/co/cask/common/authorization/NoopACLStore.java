@@ -37,7 +37,7 @@ public class NoopACLStore implements ACLStore {
   }
 
   @Override
-  public Set<ACLEntry> read(Query query) {
+  public Set<ACLEntry> search(Query query) {
     return Collections.emptySet();
   }
 
