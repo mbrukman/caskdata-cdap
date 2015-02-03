@@ -17,64 +17,109 @@
 package co.cask.cdap.data2.dataset2.lib.table;
 
 import co.cask.cdap.api.dataset.DatasetProperties;
+import co.cask.cdap.authorization.ObjectIds;
+import co.cask.cdap.authorization.SubjectIds;
 import co.cask.cdap.data2.dataset2.AbstractDatasetTest;
+import co.cask.common.authorization.ACLEntry;
+import co.cask.common.authorization.ACLStore;
+import co.cask.common.authorization.Permission;
+import com.google.common.collect.ImmutableList;
+import org.junit.After;
 import org.junit.Assert;
+import org.junit.Before;
 import org.junit.Test;
 
 import java.util.List;
+import java.util.Set;
 
 /**
  * Test for {@link ACLStoreTableDataset}.
  */
 public class ACLStoreTableDatasetTest extends AbstractDatasetTest {
 
-  @Test
-  public void testBasics() throws Exception {
-    addModule("aclTableModule", new ACLStoreTableModule());
+  private static final ACLEntry SIMPLE_ACL = new ACLEntry(
+    ObjectIds.application("someNamespace", "someApp"),
+    SubjectIds.user("bob"),
+    Permission.WRITE
+  );
 
-    createInstance(ACLStoreTable.class.getName(), "myAclTable", DatasetProperties.EMPTY);
-    ACLStoreTable myAclStoreTable = getInstance("myAclTable");
+  private ACLStoreTable aclStore;
 
-    final Principal bobUser = new Principal(PrincipalType.USER, "bob");
-    final Principal bobGroup = new Principal(PrincipalType.GROUP, "bobs-only");
-
-    final EntityId secretEntity = new EntityId(EntityType.STREAM, "secretEntity");
-
-    // set user ACL
-    myAclStoreTable.setAcl(bobUser, secretEntity, PermissionType.READ, PermissionType.WRITE);
-    List<ACL> acls = myAclStoreTable.getAcls(secretEntity);
-    Assert.assertEquals(1, acls.size());
-
-    Assert.assertEquals(2, acls.get(0).getPermissions().size());
-    Assert.assertEquals(bobUser.getQualifiedId(), acls.get(0).getPrincipal().getQualifiedId());
-    Assert.assertTrue(acls.get(0).getPermissions().contains(PermissionType.READ));
-    Assert.assertTrue(acls.get(0).getPermissions().contains(PermissionType.WRITE));
-
-    // set group ACL
-    myAclStoreTable.setAcl(bobGroup, secretEntity, PermissionType.WRITE);
-    acls = myAclStoreTable.getAcls(secretEntity);
-    Assert.assertEquals(2, acls.size());
-
-    ACL actualBobAcl;
-    ACL actualBobsAcl;
-    if (acls.get(0).getPrincipal().getQualifiedId().equals(bobUser.getQualifiedId())) {
-      actualBobAcl = acls.get(0);
-      actualBobsAcl = acls.get(1);
-    } else {
-      actualBobAcl = acls.get(1);
-      actualBobsAcl = acls.get(0);
-    }
-
-    Assert.assertEquals(bobUser.getQualifiedId(), actualBobAcl.getPrincipal().getQualifiedId());
-    Assert.assertEquals(2, actualBobAcl.getPermissions().size());
-    Assert.assertTrue(actualBobAcl.getPermissions().contains(PermissionType.READ));
-    Assert.assertTrue(actualBobAcl.getPermissions().contains(PermissionType.WRITE));
-
-    Assert.assertEquals(bobGroup.getQualifiedId(), actualBobsAcl.getPrincipal().getQualifiedId());
-    Assert.assertEquals(1, actualBobsAcl.getPermissions().size());
-    Assert.assertTrue(actualBobsAcl.getPermissions().contains(PermissionType.WRITE));
-
-    deleteModule("aclTableModule");
+  @Before
+  public void setUp() throws Exception {
+    addModule(ACLStoreTableModule.class.getName(), new ACLStoreTableModule());
+    createInstance(ACLStoreTable.class.getName(), "testACLStoreTable", DatasetProperties.EMPTY);
+    this.aclStore = getInstance("testACLStoreTable");
   }
 
+  @After
+  public void tearDown() throws Exception {
+    deleteInstance("testACLStoreTable");
+    deleteModule(ACLStoreTableModule.class.getName());
+  }
+
+  @Test
+  public void testWriteAndDelete() throws Exception {
+    Assert.assertFalse(aclStore.exists(SIMPLE_ACL));
+    aclStore.write(SIMPLE_ACL);
+    Assert.assertTrue(aclStore.exists(SIMPLE_ACL));
+    aclStore.delete(SIMPLE_ACL);
+    Assert.assertFalse(aclStore.exists(SIMPLE_ACL));
+  }
+
+  @Test
+  public void testSearchAndDeleteBySimpleQuery() throws Exception {
+    testSearchAndDelete(ImmutableList.of(SIMPLE_ACL),
+                        ImmutableList.of(new ACLStore.Query(SIMPLE_ACL)));
+  }
+
+  @Test
+  public void testSearchAndDeleteByObject() throws Exception {
+    testSearchAndDelete(ImmutableList.of(SIMPLE_ACL),
+                        ImmutableList.of(new ACLStore.Query(SIMPLE_ACL.getObject(), null, null)));
+  }
+
+  @Test
+  public void testSearchAndDeleteBySubject() throws Exception {
+    testSearchAndDelete(ImmutableList.of(SIMPLE_ACL),
+                        ImmutableList.of(new ACLStore.Query(null, SIMPLE_ACL.getSubject(), null)));
+  }
+
+  @Test
+  public void testSearchAndDeleteByPermission() throws Exception {
+    testSearchAndDelete(ImmutableList.of(SIMPLE_ACL),
+                        ImmutableList.of(new ACLStore.Query(null, null, SIMPLE_ACL.getPermission())));
+  }
+  
+  @Test
+  public void testMultiSearchAndDelete() throws Exception {
+    ACLEntry sameObjectAndSubject = new ACLEntry(SIMPLE_ACL);
+    sameObjectAndSubject.setPermission(Permission.EXECUTE);
+    Assert.assertNotEquals(sameObjectAndSubject.getPermission(), SIMPLE_ACL.getPermission());
+
+    testSearchAndDelete(ImmutableList.of(SIMPLE_ACL, sameObjectAndSubject),
+                        ImmutableList.of(new ACLStore.Query(SIMPLE_ACL.getObject(), SIMPLE_ACL.getSubject(), null)));
+  }
+
+  protected void testSearchAndDelete(List<ACLEntry> entries, Iterable<ACLStore.Query> query) throws Exception {
+    // create and check all entries exist
+    for (ACLEntry entry : entries) {
+      aclStore.write(entry);
+      Assert.assertTrue(aclStore.exists(entry));
+    }
+
+    // search and delete all entries
+    Set<ACLEntry> searchResults = aclStore.search(query);
+    for (ACLEntry entry : entries) {
+      aclStore.write(entry);
+      Assert.assertTrue(searchResults.contains(entry));
+    }
+    Assert.assertEquals(entries.size(), searchResults.size());
+    aclStore.delete(query);
+
+    // ensure all entries deleted
+    for (ACLEntry entry : entries) {
+      Assert.assertFalse(aclStore.exists(entry));
+    }
+  }
 }

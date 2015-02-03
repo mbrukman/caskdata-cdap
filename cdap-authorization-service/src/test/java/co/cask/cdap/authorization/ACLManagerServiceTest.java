@@ -61,13 +61,13 @@ public class ACLManagerServiceTest {
     ObjectId objectId = ObjectIds.application(namespaceId, "someApp");
     Permission permission = Permission.WRITE;
 
-    Set<ACLEntry> beforeAcls = aclManagerClient.getACLs(namespaceId, new ACLStore.Query(objectId, currentUser));
+    Set<ACLEntry> beforeAcls = aclManagerClient.getACLs(namespaceId, new ACLStore.BatchQuery(objectId, currentUser));
     Assert.assertEquals(0, beforeAcls.size());
 
     ACLEntry entry = new ACLEntry(objectId, currentUser, permission);
     aclManagerClient.createACL(namespaceId, entry);
 
-    Set<ACLEntry> afterAcls = aclManagerClient.getACLs(namespaceId, new ACLStore.Query(objectId, currentUser));
+    Set<ACLEntry> afterAcls = aclManagerClient.getACLs(namespaceId, new ACLStore.BatchQuery(objectId, currentUser));
     Assert.assertEquals(1, afterAcls.size());
     ACLEntry afterAcl = afterAcls.iterator().next();
     Assert.assertEquals(currentUser, afterAcl.getSubject());
@@ -85,12 +85,12 @@ public class ACLManagerServiceTest {
     ACLEntry entry = new ACLEntry(objectId, currentUser, permission);
     aclManagerClient.createACL(namespaceId, entry);
 
-    Set<ACLEntry> beforeAcls = aclManagerClient.getACLs(namespaceId, new ACLStore.Query(objectId, currentUser));
+    Set<ACLEntry> beforeAcls = aclManagerClient.getACLs(namespaceId, new ACLStore.BatchQuery(objectId, currentUser));
     Assert.assertEquals(1, beforeAcls.size());
 
-    aclManagerClient.deleteACLs(namespaceId, new ACLStore.Query(entry));
+    aclManagerClient.deleteACLs(namespaceId, new ACLStore.BatchQuery(entry));
 
-    Set<ACLEntry> afterAcls = aclManagerClient.getACLs(namespaceId, new ACLStore.Query(objectId, currentUser));
+    Set<ACLEntry> afterAcls = aclManagerClient.getACLs(namespaceId, new ACLStore.BatchQuery(objectId, currentUser));
     Assert.assertEquals(0, afterAcls.size());
   }
 }

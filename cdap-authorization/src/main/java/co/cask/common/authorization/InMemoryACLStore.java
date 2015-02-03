@@ -33,8 +33,8 @@ public class InMemoryACLStore implements ACLStore {
   }
 
   @Override
-  public void exists(ACLEntry entry) {
-    store.contains(entry);
+  public boolean exists(ACLEntry entry) {
+    return store.contains(entry);
   }
 
   @Override
@@ -43,11 +43,11 @@ public class InMemoryACLStore implements ACLStore {
   }
 
   @Override
-  public Set<ACLEntry> search(Query query) {
+  public Set<ACLEntry> search(Iterable<Query> queries) {
     Set<ACLEntry> result = Sets.newHashSet();
     for (ACLEntry aclEntry : store) {
-      for (Condition condition : query.getConditions()) {
-        if (condition.matches(aclEntry)) {
+      for (Query query : queries) {
+        if (query.matches(aclEntry)) {
           result.add(aclEntry);
           break;
         }
@@ -58,12 +58,12 @@ public class InMemoryACLStore implements ACLStore {
   }
 
   @Override
-  public void delete(Query query) {
+  public void delete(Iterable<Query> queries) {
     Iterator<ACLEntry> iterator = store.iterator();
     while (iterator.hasNext()) {
       ACLEntry aclEntry = iterator.next();
-      for (Condition condition : query.getConditions()) {
-        if (condition.matches(aclEntry)) {
+      for (Query query : queries) {
+        if (query.matches(aclEntry)) {
           iterator.remove();
           break;
         }

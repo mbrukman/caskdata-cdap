@@ -47,11 +47,11 @@ public class ACLManagerClient {
     this.baseURISupplier = baseURISupplier;
   }
 
-  public String appendCondition(String path, ACLStore.Query query) {
+  public String appendCondition(String path, ACLStore.BatchQuery query) {
     List<String> arguments = Lists.newArrayList();
 
     int i = 0;
-    for (ACLStore.Condition condition : query.getConditions()) {
+    for (ACLStore.Query condition : query.getQueries()) {
       if (condition.getSubjectId().isPresent()) {
         arguments.add("subject[" + i + "]=" + condition.getSubjectId().get().getRep());
       }
@@ -71,7 +71,7 @@ public class ACLManagerClient {
     return path;
   }
 
-  public Set<ACLEntry> getGlobalACLs(ACLStore.Query query) throws IOException {
+  public Set<ACLEntry> getGlobalACLs(ACLStore.BatchQuery query) throws IOException {
     String path = appendCondition("/v1/acls/global", query);
     HttpRequest request = HttpRequest.get(resolveURL(path)).build();
     HttpResponse response = HttpRequests.execute(request);
@@ -84,7 +84,7 @@ public class ACLManagerClient {
     return ObjectResponse.fromJsonBody(response, new TypeToken<Set<ACLEntry>>() { }).getResponseObject();
   }
 
-  public Set<ACLEntry> getACLs(String namespaceId, ACLStore.Query query) throws IOException {
+  public Set<ACLEntry> getACLs(String namespaceId, ACLStore.BatchQuery query) throws IOException {
     String path = appendCondition("/v1/acls/namespace/" + namespaceId, query);
     HttpRequest request = HttpRequest.get(resolveURL(path)).build();
     HttpResponse response = HttpRequests.execute(request);
@@ -97,7 +97,7 @@ public class ACLManagerClient {
     return ObjectResponse.fromJsonBody(response, new TypeToken<Set<ACLEntry>>() { }).getResponseObject();
   }
 
-  public void deleteGlobalACLs(ACLStore.Query query) throws IOException {
+  public void deleteGlobalACLs(ACLStore.BatchQuery query) throws IOException {
     String path = appendCondition("/v1/acls/global", query);
     HttpRequest request = HttpRequest.delete(resolveURL(path)).build();
     HttpResponse response = HttpRequests.execute(request);
@@ -108,7 +108,7 @@ public class ACLManagerClient {
     }
   }
 
-  public void deleteACLs(String namespaceId, ACLStore.Query query) throws IOException {
+  public void deleteACLs(String namespaceId, ACLStore.BatchQuery query) throws IOException {
     String path = appendCondition("/v1/acls/namespace/" + namespaceId, query);
     HttpRequest request = HttpRequest.delete(resolveURL(path)).build();
     HttpResponse response = HttpRequests.execute(request);

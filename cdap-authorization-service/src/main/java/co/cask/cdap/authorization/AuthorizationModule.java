@@ -43,7 +43,7 @@ public class AuthorizationModule {
       @Override
       protected void configure() {
         bind(AuthorizationClient.class).to(DefaultAuthorizationClient.class);
-        bind(ACLStore.class).to(ACLStoreTable.class);
+        bind(ACLStore.class).toProvider(ACLStoreTableProvider.class);
       }
     };
   }
@@ -53,7 +53,7 @@ public class AuthorizationModule {
       @Override
       protected void configure() {
         bind(AuthorizationClient.class).to(DefaultAuthorizationClient.class);
-        bind(ACLStore.class).to(ACLStoreTable.class);
+        bind(ACLStore.class).toProvider(ACLStoreTableProvider.class);
       }
     };
   }

@@ -29,7 +29,8 @@ public class NoopACLStore implements ACLStore {
   }
 
   @Override
-  public void exists(ACLEntry entry) {
+  public boolean exists(ACLEntry entry) {
+    return true;
   }
 
   @Override
@@ -37,11 +38,11 @@ public class NoopACLStore implements ACLStore {
   }
 
   @Override
-  public Set<ACLEntry> search(Query query) {
+  public Set<ACLEntry> search(Iterable<Query> queries) {
     return Collections.emptySet();
   }
 
   @Override
-  public void delete(Query query) {
+  public void delete(Iterable<Query> queries) {
   }
 }

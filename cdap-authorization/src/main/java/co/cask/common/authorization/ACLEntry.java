@@ -40,6 +40,12 @@ public class ACLEntry {
     this.permission = permission;
   }
 
+  public ACLEntry(ACLEntry entry) {
+    this.object = entry.object;
+    this.subject = entry.subject;
+    this.permission = entry.permission;
+  }
+
   public ObjectId getObject() {
     return object;
   }

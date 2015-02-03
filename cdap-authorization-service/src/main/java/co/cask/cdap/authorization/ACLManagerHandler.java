@@ -66,7 +66,7 @@ public class ACLManagerHandler extends AbstractHttpHandler {
     Permission permission = permissionString != null ? Permission.fromName(permissionString) : null;
 
     try {
-      Set<ACLEntry> result = aclStore.search(new ACLStore.Query(objectId, subject, permission));
+      Set<ACLEntry> result = aclStore.search(new ACLStore.BatchQuery(objectId, subject, permission));
       String response = GSON.toJson(result);
       responder.sendString(HttpResponseStatus.OK, response);
     } catch (Exception e) {
@@ -91,7 +91,7 @@ public class ACLManagerHandler extends AbstractHttpHandler {
     Permission permission = permissionString != null ? Permission.fromName(permissionString) : null;
 
     try {
-      Set<ACLEntry> result = aclStore.search(new ACLStore.Query(objectId, subject, permission));
+      Set<ACLEntry> result = aclStore.search(new ACLStore.BatchQuery(objectId, subject, permission));
       String response = GSON.toJson(result);
       responder.sendString(HttpResponseStatus.OK, response);
     } catch (Exception e) {
@@ -113,7 +113,7 @@ public class ACLManagerHandler extends AbstractHttpHandler {
     Permission permission = permissionString != null ? Permission.fromName(permissionString) : null;
 
     try {
-      aclStore.delete(new ACLStore.Query(objectId, subject, permission));
+      aclStore.delete(new ACLStore.BatchQuery(objectId, subject, permission));
       responder.sendStatus(HttpResponseStatus.OK);
     } catch (Exception e) {
       LOG.error("Error deleting ACLs matching subject={} permission={}", subjectString, permissionString, e);
@@ -136,7 +136,7 @@ public class ACLManagerHandler extends AbstractHttpHandler {
     Permission permission = permissionString != null ? Permission.fromName(permissionString) : null;
 
     try {
-      aclStore.delete(new ACLStore.Query(objectId, subject, permission));
+      aclStore.delete(new ACLStore.BatchQuery(objectId, subject, permission));
       responder.sendStatus(HttpResponseStatus.OK);
     } catch (Exception e) {
       LOG.error("Error deleting ACLs matching namespace={} object={} subject={} permission={}",

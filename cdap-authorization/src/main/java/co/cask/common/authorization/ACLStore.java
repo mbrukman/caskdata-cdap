@@ -15,10 +15,6 @@
  */
 package co.cask.common.authorization;
 
-import com.google.common.base.Optional;
-import com.google.common.collect.ImmutableList;
-
-import java.util.List;
 import java.util.Set;
 
 /**
@@ -38,9 +34,10 @@ public interface ACLStore {
    * Checks for the existence of an {@link ACLEntry}.
    *
    *
-   * @param entry the {@link ACLEntry} to check
+   * @param entry the {@link co.cask.common.authorization.ACLEntry} to check
+   * @return true if the {@link ACLEntry} exists
    */
-  void exists(ACLEntry entry) throws Exception;
+  boolean exists(ACLEntry entry) throws Exception;
 
   /**
    * Deletes an {@link ACLEntry} matching.
@@ -51,85 +48,52 @@ public interface ACLStore {
   void delete(ACLEntry entry) throws Exception;
 
   /**
-   * Fetches {@link ACLEntry}s matching the specified {@link Query}.
+   * Fetches {@link ACLEntry}s matching the specified {@link ACLStore.Query}.
    *
    * @param query specifies the {@link ACLEntry}s to read
    * @return the {@link ACLEntry}s that have the {@code object}.
    */
-  Set<ACLEntry> search(Query query) throws Exception;
+  Set<ACLEntry> search(Iterable<Query> query) throws Exception;
 
   /**
-   * Deletes {@link ACLEntry}s matching the specified {@link Query}.
+   * Deletes {@link ACLEntry}s matching the specified {@link ACLStore.Query}.
    *
    * @param query specifies the {@link ACLEntry}s to delete
    */
-  void delete(Query query) throws Exception;
+  void delete(Iterable<Query> query) throws Exception;
 
   /**
-   * Represents a query for searching existing {@link ACLEntry}s. If any conditions are satisfied
-   * for an {@link ACLEntry}, then the {@link ACLEntry} will be included in the results.
+   * Represents a query to match when searching for ACLs. Null implies match anything.
    */
   public static final class Query {
 
-    private final List<Condition> conditions;
+    private final ObjectId objectId;
+    private final SubjectId subjectId;
+    private final Permission permission;
 
-    public Query(Condition... conditions) {
-      this.conditions = ImmutableList.copyOf(conditions);
+    public Query(ObjectId objectId, SubjectId subjectId, Permission permission) {
+      this.objectId = objectId;
+      this.subjectId = subjectId;
+      this.permission = permission;
     }
 
-    public Query(List<Condition> conditions) {
-      this.conditions = ImmutableList.copyOf(conditions);
-    }
-
-    public Query(ObjectId objectId, SubjectId subject, Permission permission) {
-      this.conditions = ImmutableList.of(new Condition(objectId, subject, permission));
-    }
-
-    public Query(ObjectId objectId, SubjectId subject) {
-      this.conditions = ImmutableList.of(new Condition(objectId, subject));
-    }
-
-    public Query(ACLEntry aclEntry) {
-      this.conditions = ImmutableList.of(new Condition(aclEntry));
-    }
-
-    public List<Condition> getConditions() {
-      return conditions;
-    }
-  }
-
-  /**
-   * Represents a condition to match when searching for ACLs.
-   */
-  public static final class Condition {
-
-    private final Optional<ObjectId> objectId;
-    private final Optional<SubjectId> subjectId;
-    private final Optional<Permission> permission;
-
-    public Condition(ObjectId objectId, SubjectId subjectId, Permission permission) {
-      this.objectId = Optional.fromNullable(objectId);
-      this.subjectId = Optional.fromNullable(subjectId);
-      this.permission = Optional.fromNullable(permission);
-    }
-
-    public Condition(ObjectId objectId, SubjectId subjectId) {
+    public Query(ObjectId objectId, SubjectId subjectId) {
       this(objectId, subjectId, null);
     }
 
-    public Condition(ACLEntry entry) {
+    public Query(ACLEntry entry) {
       this(entry.getObject(), entry.getSubject(), entry.getPermission());
     }
 
-    public Optional<ObjectId> getObjectId() {
+    public ObjectId getObjectId() {
       return objectId;
     }
 
-    public Optional<SubjectId> getSubjectId() {
+    public SubjectId getSubjectId() {
       return subjectId;
     }
 
-    public Optional<Permission> getPermission() {
+    public Permission getPermission() {
       return permission;
     }
 
@@ -138,9 +102,9 @@ public interface ACLStore {
      * @return true if entry matches this condition
      */
     public boolean matches(ACLEntry entry) {
-      return !(objectId.isPresent() && !objectId.get().equals(entry.getObject()))
-        && !(subjectId.isPresent() && !subjectId.get().equals(entry.getSubject()))
-        && !(permission.isPresent() && !permission.get().equals(entry.getPermission()));
+      return !(objectId != null && !objectId.equals(entry.getObject()))
+        && !(subjectId != null && !subjectId.equals(entry.getSubject()))
+        && !(permission != null && !permission.equals(entry.getPermission()));
 
     }
   }

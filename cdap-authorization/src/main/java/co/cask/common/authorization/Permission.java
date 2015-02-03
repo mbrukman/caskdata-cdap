@@ -15,6 +15,7 @@
  */
 package co.cask.common.authorization;
 
+import co.cask.cdap.api.common.Bytes;
 import com.google.common.base.Objects;
 import com.google.common.collect.ImmutableMap;
 
@@ -91,7 +92,7 @@ public class Permission {
 
   @Override
   public int hashCode() {
-    return Objects.hashCode(name, id);
+    return Bytes.hashCode(id);
   }
 
   @Override

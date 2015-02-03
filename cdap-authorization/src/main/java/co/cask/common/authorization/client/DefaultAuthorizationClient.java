@@ -72,8 +72,8 @@ public class DefaultAuthorizationClient implements AuthorizationClient {
     for (ObjectId object : objects) {
       try {
         // TODO: consider doing only a single aclStore call
-        ACLStore.Query query = new ACLStore.Query(generateConditions(object, subjects, remainingRequiredPermission));
-        Set<ACLEntry> aclEntries = aclStore.search(query);
+        List<ACLStore.Query> queries = generateQueries(object, subjects, remainingRequiredPermission);
+        Set<ACLEntry> aclEntries = aclStore.search(queries);
         for (ACLEntry aclEntry : aclEntries) {
           remainingRequiredPermission.remove(aclEntry.getPermission());
         }
@@ -90,15 +90,15 @@ public class DefaultAuthorizationClient implements AuthorizationClient {
     return false;
   }
 
-  private List<ACLStore.Condition> generateConditions(ObjectId object, Iterable<SubjectId> subjects,
-                                                      Iterable<Permission> permissions) {
-    List<ACLStore.Condition> conditions = Lists.newArrayList();
+  private List<ACLStore.Query> generateQueries(ObjectId object, Iterable<SubjectId> subjects,
+                                               Iterable<Permission> permissions) {
+    List<ACLStore.Query> queries = Lists.newArrayList();
     for (SubjectId subjectId : subjects) {
       for (Permission permission : permissions) {
-        conditions.add(new ACLStore.Condition(object, subjectId, permission));
+        queries.add(new ACLStore.Query(object, subjectId, permission));
       }
     }
-    return conditions;
+    return queries;
   }
 
   @Override
@@ -107,7 +107,7 @@ public class DefaultAuthorizationClient implements AuthorizationClient {
 
     Set<Permission> remainingRequiredPermission = Sets.newHashSet(requiredPermissions);
     try {
-      ACLStore.Query query = new ACLStore.Query(generateConditions(object, subjects, remainingRequiredPermission));
+      List<ACLStore.Query> query = generateQueries(object, subjects, remainingRequiredPermission);
       Set<ACLEntry> aclEntries = aclStore.search(query);
       for (ACLEntry aclEntry : aclEntries) {
         remainingRequiredPermission.remove(aclEntry.getPermission());

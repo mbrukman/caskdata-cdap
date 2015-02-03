@@ -91,6 +91,6 @@ public class ObjectId {
 
   @Override
   public String toString() {
-    return Objects.toStringHelper(this).add("parent", parent).add("type", type).add("id", id).toString();
+    return Objects.toStringHelper(this).add("type", type).add("id", id).add("parent", parent).toString();
   }
 }
