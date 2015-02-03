@@ -48,7 +48,7 @@ import javax.annotation.Nullable;
 public class AsciiTable<T> {
 
   private final List<String> header;
-  private final List<T> records;
+  private final Iterable<T> records;
   private final RowMaker<T> rowMaker;
 
   /**
@@ -56,7 +56,7 @@ public class AsciiTable<T> {
    * @param records list of objects that represent the rows
    * @param rowMaker makes Object arrays from a row object
    */
-  public AsciiTable(@Nullable String[] header, List<T> records, RowMaker<T> rowMaker) {
+  public AsciiTable(@Nullable String[] header, Iterable<T> records, RowMaker<T> rowMaker) {
     this.header = (header == null) ? ImmutableList.<String>of() : ImmutableList.copyOf(header);
     this.records = records;
     this.rowMaker = rowMaker;
