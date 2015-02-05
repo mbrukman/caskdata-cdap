@@ -21,23 +21,45 @@ import co.cask.cdap.data2.increment.hbase96.IncrementHandler;
 import co.cask.cdap.data2.transaction.coprocessor.hbase96.DefaultTransactionProcessor;
 import co.cask.cdap.data2.transaction.queue.coprocessor.hbase96.DequeueScanObserver;
 import co.cask.cdap.data2.transaction.queue.coprocessor.hbase96.HBaseQueueRegionObserver;
+import co.cask.cdap.proto.Id;
 import com.google.common.collect.Maps;
 import org.apache.hadoop.hbase.ClusterStatus;
 import org.apache.hadoop.hbase.Coprocessor;
 import org.apache.hadoop.hbase.HColumnDescriptor;
 import org.apache.hadoop.hbase.HRegionInfo;
+import org.apache.hadoop.hbase.HTableDescriptor;
+import org.apache.hadoop.hbase.NamespaceDescriptor;
 import org.apache.hadoop.hbase.RegionLoad;
 import org.apache.hadoop.hbase.ServerName;
+import org.apache.hadoop.hbase.TableName;
 import org.apache.hadoop.hbase.client.HBaseAdmin;
 import org.apache.hadoop.hbase.io.compress.Compression;
 
 import java.io.IOException;
 import java.util.Map;
+import javax.annotation.Nullable;
 
 /**
  *
  */
 public class HBase96TableUtil extends HBaseTableUtil {
+  @Override
+  public HTableDescriptor getHTableDescriptor(@Nullable String namespace, String tableName) {
+    // 'namespace' in TableName.valueOf is Nullable, defaults to default
+    return new HTableDescriptor(TableName.valueOf(namespace, tableName));
+  }
+
+  @Override
+  public void createNamespace(HBaseAdmin admin, Id.Namespace namespace) throws IOException {
+    NamespaceDescriptor namespaceDescriptor = NamespaceDescriptor.create(namespace.getId()).build();
+    admin.createNamespace(namespaceDescriptor);
+  }
+
+  @Override
+  public void deleteNamespace(HBaseAdmin admin, Id.Namespace namespace) throws IOException {
+    admin.deleteNamespace(namespace.getId());
+  }
+
   @Override
   public void setCompression(HColumnDescriptor columnDescriptor, CompressionType type) {
     switch (type) {

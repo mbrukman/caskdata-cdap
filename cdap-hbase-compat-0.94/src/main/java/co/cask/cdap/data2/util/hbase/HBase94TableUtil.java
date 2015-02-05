@@ -21,12 +21,15 @@ import co.cask.cdap.data2.increment.hbase94.IncrementHandler;
 import co.cask.cdap.data2.transaction.coprocessor.hbase94.DefaultTransactionProcessor;
 import co.cask.cdap.data2.transaction.queue.coprocessor.hbase94.DequeueScanObserver;
 import co.cask.cdap.data2.transaction.queue.coprocessor.hbase94.HBaseQueueRegionObserver;
+import co.cask.cdap.proto.Id;
+import com.google.common.base.Joiner;
 import com.google.common.collect.Maps;
 import org.apache.hadoop.hbase.ClusterStatus;
 import org.apache.hadoop.hbase.Coprocessor;
 import org.apache.hadoop.hbase.HColumnDescriptor;
 import org.apache.hadoop.hbase.HRegionInfo;
 import org.apache.hadoop.hbase.HServerLoad;
+import org.apache.hadoop.hbase.HTableDescriptor;
 import org.apache.hadoop.hbase.ServerName;
 import org.apache.hadoop.hbase.client.HBaseAdmin;
 import org.apache.hadoop.hbase.io.hfile.Compression;
@@ -34,11 +37,33 @@ import org.apache.hadoop.hbase.regionserver.StoreFile;
 
 import java.io.IOException;
 import java.util.Map;
+import javax.annotation.Nullable;
 
 /**
  *
  */
 public class HBase94TableUtil extends HBaseTableUtil {
+  @Override
+  public HTableDescriptor getHTableDescriptor(@Nullable String namespace, String tableName) {
+    String actualTableName;
+    if (namespace == null) {
+      actualTableName = tableName;
+    } else {
+      actualTableName = Joiner.on(".").join(namespace, tableName);
+    }
+    return new HTableDescriptor(actualTableName);
+  }
+
+  @Override
+  public void createNamespace(HBaseAdmin admin, Id.Namespace namespace) throws IOException {
+    // No-op.
+  }
+
+  @Override
+  public void deleteNamespace(HBaseAdmin admin, Id.Namespace namespace) throws IOException {
+    // No-op
+  }
+
   @Override
   public void setCompression(HColumnDescriptor columnDescriptor, CompressionType type) {
     switch (type) {
