@@ -24,6 +24,7 @@ import co.cask.cdap.data2.transaction.queue.coprocessor.hbase94.HBaseQueueRegion
 import co.cask.cdap.proto.Id;
 import com.google.common.base.Joiner;
 import com.google.common.collect.Maps;
+import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hbase.ClusterStatus;
 import org.apache.hadoop.hbase.Coprocessor;
 import org.apache.hadoop.hbase.HColumnDescriptor;
@@ -32,6 +33,7 @@ import org.apache.hadoop.hbase.HServerLoad;
 import org.apache.hadoop.hbase.HTableDescriptor;
 import org.apache.hadoop.hbase.ServerName;
 import org.apache.hadoop.hbase.client.HBaseAdmin;
+import org.apache.hadoop.hbase.client.HTable;
 import org.apache.hadoop.hbase.io.hfile.Compression;
 import org.apache.hadoop.hbase.regionserver.StoreFile;
 
@@ -43,15 +45,15 @@ import javax.annotation.Nullable;
  *
  */
 public class HBase94TableUtil extends HBaseTableUtil {
+
+  @Override
+  public HTable getHTable(Configuration conf, @Nullable String namespace, String tableName) throws IOException {
+    return new HTable(conf, getActualTableName(namespace, tableName));
+  }
+
   @Override
   public HTableDescriptor getHTableDescriptor(@Nullable String namespace, String tableName) {
-    String actualTableName;
-    if (namespace == null) {
-      actualTableName = tableName;
-    } else {
-      actualTableName = Joiner.on(".").join(namespace, tableName);
-    }
-    return new HTableDescriptor(actualTableName);
+    return new HTableDescriptor(getActualTableName(namespace, tableName));
   }
 
   @Override
@@ -62,6 +64,16 @@ public class HBase94TableUtil extends HBaseTableUtil {
   @Override
   public void deleteNamespace(HBaseAdmin admin, Id.Namespace namespace) throws IOException {
     // No-op
+  }
+
+  private String getActualTableName(@Nullable String namespace, String tableName) {
+    String actualTableName;
+    if (namespace == null) {
+      actualTableName = tableName;
+    } else {
+      actualTableName = Joiner.on(".").join(namespace, tableName);
+    }
+    return actualTableName;
   }
 
   @Override

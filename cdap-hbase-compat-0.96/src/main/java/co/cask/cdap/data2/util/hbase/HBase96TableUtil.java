@@ -23,6 +23,7 @@ import co.cask.cdap.data2.transaction.queue.coprocessor.hbase96.DequeueScanObser
 import co.cask.cdap.data2.transaction.queue.coprocessor.hbase96.HBaseQueueRegionObserver;
 import co.cask.cdap.proto.Id;
 import com.google.common.collect.Maps;
+import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hbase.ClusterStatus;
 import org.apache.hadoop.hbase.Coprocessor;
 import org.apache.hadoop.hbase.HColumnDescriptor;
@@ -33,6 +34,7 @@ import org.apache.hadoop.hbase.RegionLoad;
 import org.apache.hadoop.hbase.ServerName;
 import org.apache.hadoop.hbase.TableName;
 import org.apache.hadoop.hbase.client.HBaseAdmin;
+import org.apache.hadoop.hbase.client.HTable;
 import org.apache.hadoop.hbase.io.compress.Compression;
 
 import java.io.IOException;
@@ -43,6 +45,12 @@ import javax.annotation.Nullable;
  *
  */
 public class HBase96TableUtil extends HBaseTableUtil {
+
+  @Override
+  public HTable getHTable(Configuration conf, @Nullable String namespace, String tableName) throws IOException {
+    return new HTable(conf, TableName.valueOf(namespace, tableName));
+  }
+
   @Override
   public HTableDescriptor getHTableDescriptor(@Nullable String namespace, String tableName) {
     // 'namespace' in TableName.valueOf is Nullable, defaults to default

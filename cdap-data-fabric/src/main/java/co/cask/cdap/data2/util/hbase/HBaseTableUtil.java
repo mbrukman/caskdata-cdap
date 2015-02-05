@@ -37,6 +37,7 @@ import org.apache.hadoop.hbase.HConstants;
 import org.apache.hadoop.hbase.HTableDescriptor;
 import org.apache.hadoop.hbase.TableExistsException;
 import org.apache.hadoop.hbase.client.HBaseAdmin;
+import org.apache.hadoop.hbase.client.HTable;
 import org.apache.hadoop.hbase.io.ImmutableBytesWritable;
 import org.apache.twill.filesystem.Location;
 import org.apache.twill.internal.utils.Dependencies;
@@ -386,6 +387,16 @@ public abstract class HBaseTableUtil {
 
     return info;
   }
+
+  /**
+   * Creates a new {@link HTable} which may contain an HBase namespace depending on the HBase version
+   *
+   * @param conf the hadoop configuration
+   * @param namespace the namespace in which the table must exist
+   * @param tableName the name of the table to create a descriptor for
+   * @return an {@link HTable} for the tableName in the namespace
+   */
+  public abstract HTable getHTable(Configuration conf, @Nullable String namespace, String tableName) throws IOException;
 
   /**
    * Creates a new {@link HTableDescriptor} which may contain an HBase namespace depending on the HBase version
