@@ -19,6 +19,7 @@ package co.cask.cdap.data2.util.hbase;
 import co.cask.cdap.api.common.Bytes;
 import co.cask.cdap.data2.transaction.queue.hbase.HBaseQueueAdmin;
 import co.cask.cdap.hbase.wd.AbstractRowKeyDistributor;
+import co.cask.cdap.proto.Id;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Stopwatch;
 import com.google.common.base.Throwables;
@@ -36,6 +37,7 @@ import org.apache.hadoop.hbase.HConstants;
 import org.apache.hadoop.hbase.HTableDescriptor;
 import org.apache.hadoop.hbase.TableExistsException;
 import org.apache.hadoop.hbase.client.HBaseAdmin;
+import org.apache.hadoop.hbase.client.HTable;
 import org.apache.hadoop.hbase.io.ImmutableBytesWritable;
 import org.apache.twill.filesystem.Location;
 import org.apache.twill.internal.utils.Dependencies;
@@ -56,6 +58,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.jar.JarEntry;
 import java.util.jar.JarOutputStream;
 import java.util.regex.Matcher;
+import javax.annotation.Nullable;
 
 /**
  * Common utilities for dealing with HBase.
@@ -384,6 +387,73 @@ public abstract class HBaseTableUtil {
 
     return info;
   }
+
+  protected String prefixCDAPToNamespace(String namespace) {
+    return "cdap_" + namespace;
+  }
+
+  /**
+   * Returns if the current version of HBase supports namespaces
+   *
+   * @return true if namespaces are supported, false otherwise
+   */
+  public abstract boolean namespacesSupported();
+
+  /**
+   * Creates a new {@link HTable} which may contain an HBase namespace depending on the HBase version
+   *
+   * @param conf the hadoop configuration
+   * @param namespace the namespace in which the table must exist
+   * @param tableName the name of the table to create a descriptor for
+   * @return an {@link HTable} for the tableName in the namespace
+   */
+  public abstract HTable getHTable(Configuration conf, @Nullable String namespace, String tableName) throws IOException;
+
+  /**
+   * Creates a new {@link HTableDescriptor} which may contain an HBase namespace depending on the HBase version
+   *
+   * @param namespace the namespace in which the table must exist
+   * @param tableName the name of the table to create a descriptor for
+   * @return an {@link HTableDescriptor} for the tableName in the namespace
+   */
+  public abstract HTableDescriptor getHTableDescriptor(@Nullable String namespace, String tableName);
+
+  /**
+   * Checks if an HBase namespace already exists
+   *
+   * @param admin the {@link HBaseAdmin} to use to communicate with HBase
+   * @param namespace the {@link Id.Namespace} to check for existence
+   */
+  public abstract boolean hasNamespace(HBaseAdmin admin, Id.Namespace namespace);
+
+  /**
+   * Creates an HBase namespace, if it does not already exist
+   * This method uses {@link Id.Namespace} here to cover for a future case when CDAP namespaces may push down namespace
+   * properties to HBase
+   *
+   * @param admin the {@link HBaseAdmin} to use to communicate with HBase
+   * @param namespace the {@link Id.Namespace} to create
+   * @throws IOException if the namespace already exists in HBase
+   */
+  public abstract void createNamespace(HBaseAdmin admin, Id.Namespace namespace) throws IOException;
+
+  /**
+   * Creates an HBase namespace, if it exists
+   *
+   * @param admin the {@link HBaseAdmin} to use to communicate with HBase
+   * @param namespace the {@link Id.Namespace} to delete
+   * @throws IOException if the namespace does not exist in HBase
+   */
+  public abstract void deleteNamespace(HBaseAdmin admin, Id.Namespace namespace) throws IOException;
+
+  /**
+   * Returns the fully qualified table name containing namespace
+   *
+   * @param namespace the namespace that the table belongs to
+   * @param tableName the table name
+   * @return the fully qualified table name containing namespace
+   */
+  public abstract String getTableNameWithNamespace(String namespace, String tableName);
 
   public abstract void setCompression(HColumnDescriptor columnDescriptor, CompressionType type);
 
