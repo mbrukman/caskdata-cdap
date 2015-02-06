@@ -47,6 +47,11 @@ import javax.annotation.Nullable;
 public class HBase94TableUtil extends HBaseTableUtil {
 
   @Override
+  protected boolean namespacesSupported() {
+    return false;
+  }
+
+  @Override
   public HTable getHTable(Configuration conf, @Nullable String namespace, String tableName) throws IOException {
     // TODO: Think about what happens if namespace passed here is null.maybe it should never be null.
     return new HTable(conf, getActualTableName(prefixCDAPToNamespace(namespace), tableName));
@@ -71,6 +76,11 @@ public class HBase94TableUtil extends HBaseTableUtil {
   @Override
   public void deleteNamespace(HBaseAdmin admin, Id.Namespace namespace) throws IOException {
     // No-op
+  }
+
+  @Override
+  protected String getTableNameWithNamespace(String namespace, String tableName) {
+    return namespace + "." + tableName;
   }
 
   private String getActualTableName(@Nullable String namespace, String tableName) {

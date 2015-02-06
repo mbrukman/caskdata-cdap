@@ -393,6 +393,13 @@ public abstract class HBaseTableUtil {
   }
 
   /**
+   * Returns if the current version of HBase supports namespaces
+   *
+   * @return true if namespaces are supported, false otherwise
+   */
+  protected abstract boolean namespacesSupported();
+
+  /**
    * Creates a new {@link HTable} which may contain an HBase namespace depending on the HBase version
    *
    * @param conf the hadoop configuration
@@ -415,18 +422,18 @@ public abstract class HBaseTableUtil {
    * Checks if an HBase namespace already exists
    *
    * @param admin the {@link HBaseAdmin} to use to communicate with HBase
-   * @param namespace the {@link Id.Namespace} to check
-   * TODO: Using {@link Id.Namespace} maybe cumbersome here, maybe switch to String
+   * @param namespace the {@link Id.Namespace} to check for existence
    */
   public abstract boolean hasNamespace(HBaseAdmin admin, Id.Namespace namespace);
 
   /**
    * Creates an HBase namespace, if it does not already exist
+   * This method uses {@link Id.Namespace} here to cover for a future case when CDAP namespaces may push down namespace
+   * properties to HBase
    *
    * @param admin the {@link HBaseAdmin} to use to communicate with HBase
    * @param namespace the {@link Id.Namespace} to create
    * @throws IOException if the namespace already exists in HBase
-   * TODO: Using {@link Id.Namespace} maybe cumbersome here, maybe switch to String
    */
   public abstract void createNamespace(HBaseAdmin admin, Id.Namespace namespace) throws IOException;
 
@@ -436,9 +443,17 @@ public abstract class HBaseTableUtil {
    * @param admin the {@link HBaseAdmin} to use to communicate with HBase
    * @param namespace the {@link Id.Namespace} to delete
    * @throws IOException if the namespace does not exist in HBase
-   * TODO: Using {@link Id.Namespace} maybe cumbersome here, maybe switch to String
    */
   public abstract void deleteNamespace(HBaseAdmin admin, Id.Namespace namespace) throws IOException;
+
+  /**
+   * Returns the fully qualified table name containing namespace
+   *
+   * @param namespace the namespace that the table belongs to
+   * @param tableName the table name
+   * @return the fully qualified table name containing namespace
+   */
+  protected abstract String getTableNameWithNamespace(String namespace, String tableName);
 
   public abstract void setCompression(HColumnDescriptor columnDescriptor, CompressionType type);
 

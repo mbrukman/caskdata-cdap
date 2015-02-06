@@ -65,31 +65,21 @@ public abstract class AbstractHBaseTableUtilTest {
 
   protected abstract HBaseTableUtil getTableUtil();
 
-  protected abstract String getTableNameWithNamespace(String namespace, String tableName);
-
-  // TODO: Maybe this should be move to HBaseTableUtil
-  protected abstract boolean namespacesEnabled();
-
   @Test
   public void testTableSizeMetrics() throws Exception {
+    HBaseTableUtil tableUtil = getTableUtil();
     // namespace should not exist
-    if (namespacesEnabled()) {
-      Assert.assertFalse(getTableUtil().hasNamespace(hAdmin, Id.Namespace.from("namespace")));
+    if (tableUtil.namespacesSupported()) {
+      Assert.assertFalse(tableUtil.hasNamespace(hAdmin, Id.Namespace.from("namespace")));
     }
 
     Assert.assertNull(getTableStats("namespace", "table1"));
     Assert.assertNull(getTableStats("namespace", "table2"));
     Assert.assertNull(getTableStats("namespace", "table3"));
 
-    if (namespacesEnabled()) {
+    if (tableUtil.namespacesSupported()) {
       createNamespace("namespace");
-      Assert.assertTrue(getTableUtil().hasNamespace(hAdmin, Id.Namespace.from("namespace")));
-
-      try {
-        createNamespace("namespace");
-        Assert.fail("Should not create a namespace that already exists.");
-      } catch (IOException e) {
-      }
+      Assert.assertTrue(tableUtil.hasNamespace(hAdmin, Id.Namespace.from("namespace")));
     }
 
     create("namespace", "table1");
@@ -113,8 +103,8 @@ public abstract class AbstractHBaseTableUtilTest {
 
     drop("namespace", "table1");
     //TODO: TestHBase methods should accept namespace as a param
-    String hbaseNamespace = getTableUtil().prefixCDAPToNamespace("namespace");
-    testHBase.forceRegionFlush(Bytes.toBytes(getTableNameWithNamespace(hbaseNamespace, "table2")));
+    String hbaseNamespace = tableUtil.prefixCDAPToNamespace("namespace");
+    testHBase.forceRegionFlush(Bytes.toBytes(tableUtil.getTableNameWithNamespace(hbaseNamespace, "table2")));
     truncate("namespace", "table3");
 
     waitForMetricsToUpdate();
@@ -124,7 +114,7 @@ public abstract class AbstractHBaseTableUtilTest {
     Assert.assertTrue(getTableStats("namespace", "table2").getStoreFileSizeMB() > 0);
     Assert.assertEquals(0, getTableStats("namespace", "table3").getTotalSizeMB());
 
-    if (namespacesEnabled()) {
+    if (tableUtil.namespacesSupported()) {
       try {
         deleteNamespace("namespace");
         Assert.fail("Should not be able to delete a non-empty namespace.");
@@ -135,9 +125,9 @@ public abstract class AbstractHBaseTableUtilTest {
     drop("namespace", "table2");
     drop("namespace", "table3");
 
-    if (namespacesEnabled()) {
+    if (tableUtil.namespacesSupported()) {
       deleteNamespace("namespace");
-      Assert.assertFalse(getTableUtil().hasNamespace(hAdmin, Id.Namespace.from("namespace")));
+      Assert.assertFalse(tableUtil.hasNamespace(hAdmin, Id.Namespace.from("namespace")));
     }
   }
 
@@ -181,20 +171,21 @@ public abstract class AbstractHBaseTableUtilTest {
     HBaseTableUtil tableUtil = getTableUtil();
     HTableDescriptor tableDescriptor = tableUtil.getHTableDescriptor(namespace, tableName);
     String hbaseNamespace = tableUtil.prefixCDAPToNamespace(namespace);
-    hAdmin.disableTable(getTableNameWithNamespace(hbaseNamespace, tableName));
-    hAdmin.deleteTable(getTableNameWithNamespace(hbaseNamespace, tableName));
+    hAdmin.disableTable(tableUtil.getTableNameWithNamespace(hbaseNamespace, tableName));
+    hAdmin.deleteTable(tableUtil.getTableNameWithNamespace(hbaseNamespace, tableName));
     hAdmin.createTable(tableDescriptor);
   }
 
   private void drop(String namespace, String tableName) throws IOException {
-    String hbaseNamespace = getTableUtil().prefixCDAPToNamespace(namespace);
-    hAdmin.disableTable(getTableNameWithNamespace(hbaseNamespace, tableName));
-    hAdmin.deleteTable(getTableNameWithNamespace(hbaseNamespace, tableName));
+    HBaseTableUtil tableUtil = getTableUtil();
+    String hbaseNamespace = tableUtil.prefixCDAPToNamespace(namespace);
+    hAdmin.disableTable(tableUtil.getTableNameWithNamespace(hbaseNamespace, tableName));
+    hAdmin.deleteTable(tableUtil.getTableNameWithNamespace(hbaseNamespace, tableName));
   }
 
   private HBaseTableUtil.TableStats getTableStats(String namespace, String tableName) throws IOException {
     HBaseTableUtil tableUtil = getTableUtil();
     String hbaseNamespace = tableUtil.prefixCDAPToNamespace(namespace);
-    return tableUtil.getTableStats(hAdmin).get(getTableNameWithNamespace(hbaseNamespace, tableName));
+    return tableUtil.getTableStats(hAdmin).get(tableUtil.getTableNameWithNamespace(hbaseNamespace, tableName));
   }
 }

@@ -29,14 +29,4 @@ public class HBase98TableUtilTest extends AbstractHBaseTableUtilTest {
   protected HBaseTableUtil getTableUtil() {
     return new HBase98TableUtil();
   }
-
-  @Override
-  protected String getTableNameWithNamespace(String namespace, String tableName) {
-    return namespace + ":" + tableName;
-  }
-
-  @Override
-  protected boolean namespacesEnabled() {
-    return true;
-  }
 }
