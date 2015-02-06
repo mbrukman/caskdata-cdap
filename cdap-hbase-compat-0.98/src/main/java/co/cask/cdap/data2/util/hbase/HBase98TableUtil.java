@@ -76,7 +76,8 @@ public class HBase98TableUtil extends HBaseTableUtil {
   @Override
   public void createNamespace(HBaseAdmin admin, Id.Namespace namespace) throws IOException {
     if (!hasNamespace(admin, namespace)) {
-      NamespaceDescriptor namespaceDescriptor = NamespaceDescriptor.create(prefixCDAPToNamespace(namespace.getId())).build();
+      NamespaceDescriptor namespaceDescriptor =
+        NamespaceDescriptor.create(prefixCDAPToNamespace(namespace.getId())).build();
       admin.createNamespace(namespaceDescriptor);
     }
   }
