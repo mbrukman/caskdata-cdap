@@ -47,7 +47,7 @@ import javax.annotation.Nullable;
 public class HBase98TableUtil extends HBaseTableUtil {
 
   @Override
-  protected boolean namespacesSupported() {
+  public boolean namespacesSupported() {
     return true;
   }
 

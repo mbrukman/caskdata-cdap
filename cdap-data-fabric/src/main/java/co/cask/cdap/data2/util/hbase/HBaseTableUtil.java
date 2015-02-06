@@ -397,7 +397,7 @@ public abstract class HBaseTableUtil {
    *
    * @return true if namespaces are supported, false otherwise
    */
-  protected abstract boolean namespacesSupported();
+  public abstract boolean namespacesSupported();
 
   /**
    * Creates a new {@link HTable} which may contain an HBase namespace depending on the HBase version
