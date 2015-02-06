@@ -17,8 +17,10 @@
 package co.cask.cdap.api.dataset.lib;
 
 import co.cask.cdap.api.common.Bytes;
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
+import com.sun.istack.internal.NotNull;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -160,39 +162,50 @@ public class Partitioning {
      * Add a field with a given name and type.
      * @param name the field name
      * @param type the type of the field
+     * @throws java.lang.IllegalArgumentException if the field name already exists
      */
-    public void addField(String name, FieldType type) {
+    public Builder addField(@NotNull String name, @NotNull FieldType type) {
+      Preconditions.checkArgument(name != null && !name.isEmpty(), "Field name cannot be null or empty.");
+      Preconditions.checkArgument(type != null, "Field type cannot be null.");
+      if (fields.containsKey(name)) {
+        throw new IllegalArgumentException(String.format("Field '%s' already exists in partitioning.", name));
+      }
       fields.put(name, type);
+      return this;
     }
 
     /**
      * Add field of type STRING.
      * @param name the field name
+     * @throws java.lang.IllegalArgumentException if the field name already exists
      */
-    public void addStringField(String name) {
-      addField(name, FieldType.STRING);
+    public Builder addStringField(String name) {
+      return addField(name, FieldType.STRING);
     }
 
     /**
      * Add field of type INT.
      * @param name the field name
+     * @throws java.lang.IllegalArgumentException if the field name already exists
      */
-    public void addIntField(String name) {
-      addField(name, FieldType.INT);
+    public Builder addIntField(String name) {
+      return addField(name, FieldType.INT);
     }
 
     /**
      * Add field of type LONG.
      * @param name the field name
+     * @throws java.lang.IllegalArgumentException if the field name already exists
      */
-    public void addLongField(String name) {
-      addField(name, FieldType.LONG);
+    public Builder addLongField(String name) {
+      return addField(name, FieldType.LONG);
     }
 
     /**
      * Create the partitioning.
      */
     public Partitioning build() {
+      Preconditions.checkState(!fields.isEmpty(), "Partitioning cannot be empty.");
       return new Partitioning(fields);
     }
   }
