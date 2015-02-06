@@ -17,6 +17,7 @@
 package co.cask.cdap.api.dataset.lib;
 
 import co.cask.cdap.api.annotation.Beta;
+import co.cask.cdap.api.dataset.lib.Partitioning.FieldType;
 
 import java.util.Map;
 import javax.annotation.Nullable;
@@ -33,8 +34,8 @@ public class PartitionedFileSetArguments {
   public static final String INPUT_PARTITION_VALUE_PREFIX = "input.filter.value.";
 
   /**
-   * Set the time of the output partition when using TimePartitionedFileSet as an OutputFormatProvider.
-   * This time is used as the partition key for the new file, and also to generate an output file path - if that path
+   * Set the partition key  of the output partition when using PartitionedFileSet as an OutputFormatProvider.
+   * This key is used as the partition key for the new file, and also to generate an output file path - if that path
    * is not explicitly given as an argument itself.
    *
    * @param key the partition key
@@ -47,26 +48,25 @@ public class PartitionedFileSetArguments {
   }
 
   /**
-   * @return the time of the output partition to be written
+   * @return the partition key of the output partition to be written; or null if no partition key was found
    *
    * @param arguments the runtime arguments for a partitioned dataset
    * @param partitioning the declared partitioning for the dataset, needed for proper interpretation of values
    */
   @Nullable
   public static PartitionKey getOutputPartitionKey(Map<String, String> arguments, Partitioning partitioning) {
+    int count = 0;
     PartitionKey.Builder builder = PartitionKey.builder();
-    for (Map.Entry<String, Partitioning.FieldType> entry : partitioning.getFields().entrySet()) {
+    for (Map.Entry<String, FieldType> entry : partitioning.getFields().entrySet()) {
       String fieldName = entry.getKey();
+      FieldType fieldType = entry.getValue();
       String stringValue = arguments.get(OUTPUT_PARTITION_KEY_PREFIX + fieldName);
-      if (null == stringValue) {
-        throw new IllegalArgumentException(String.format("Incomplete partition key: missing field '%s'.", fieldName));
-      }
-      Partitioning.FieldType fieldType = entry.getValue();
-      Comparable fieldValue = convertFieldValue("key", "value", fieldName, fieldType, stringValue);
+      Comparable fieldValue = convertFieldValue("key", "value", fieldName, fieldType, stringValue, false);
       @SuppressWarnings({ "unchecked", "unused" }) // we know it's type safe, but Java does not
       PartitionKey.Builder unused = builder.addField(fieldName, fieldValue);
+      count++;
     }
-    return builder.build();
+    return count == 0 ? null : builder.build();
   }
 
   /**
@@ -76,7 +76,7 @@ public class PartitionedFileSetArguments {
    * @param filter The partition filter.
    */
   public static void setInputPartitionFilter(Map<String, String> arguments, PartitionFilter filter) {
-    for (Map.Entry<String, PartitionFilter.Condition<? extends Comparable>> entry : filter.getFilters().entrySet()) {
+    for (Map.Entry<String, PartitionFilter.Condition<? extends Comparable>> entry : filter.getConditions().entrySet()) {
       String fieldName = entry.getKey();
       PartitionFilter.Condition<? extends Comparable> condition = entry.getValue();
       if (condition.getLower() == condition.getUpper()) {
@@ -97,14 +97,14 @@ public class PartitionedFileSetArguments {
   @Nullable
   public static PartitionFilter getInputPartitionFilter(Map<String, String> arguments, Partitioning partitioning) {
     PartitionFilter.Builder builder = PartitionFilter.builder();
-    for (Map.Entry<String, Partitioning.FieldType> entry : partitioning.getFields().entrySet()) {
+    for (Map.Entry<String, FieldType> entry : partitioning.getFields().entrySet()) {
       String fieldName = entry.getKey();
-      Partitioning.FieldType fieldType = entry.getValue();
+      FieldType fieldType = entry.getValue();
 
       // is it a single-value condition?
       String stringValue = arguments.get(INPUT_PARTITION_VALUE_PREFIX + fieldName);
-      if (null != stringValue) {
-        Comparable fieldValue = convertFieldValue("filter", "value", fieldName, fieldType, stringValue);
+      Comparable fieldValue = convertFieldValue("filter", "value", fieldName, fieldType, stringValue, true);
+      if (null != fieldValue) {
         @SuppressWarnings({ "unchecked", "unused" }) // we know it's type safe, but Java does not
         PartitionFilter.Builder unused = builder.addValueCondition(fieldName, fieldValue);
         continue;
@@ -112,8 +112,11 @@ public class PartitionedFileSetArguments {
       // must be a range condition
       String stringLower = arguments.get(INPUT_PARTITION_LOWER_PREFIX + fieldName);
       String stringUpper = arguments.get(INPUT_PARTITION_UPPER_PREFIX + fieldName);
-      Comparable lowerValue = convertFieldValue("filter", "lower bound", fieldName, fieldType, stringLower);
-      Comparable upperValue = convertFieldValue("filter", "upper bound", fieldName, fieldType, stringUpper);
+      Comparable lowerValue = convertFieldValue("filter", "lower bound", fieldName, fieldType, stringLower, true);
+      Comparable upperValue = convertFieldValue("filter", "upper bound", fieldName, fieldType, stringUpper, true);
+      if (null == lowerValue && null == upperValue) {
+        continue; // this field was not present in the filter
+      }
       @SuppressWarnings({ "unchecked", "unused" }) // we know it's type safe, but Java does not
       PartitionFilter.Builder unused = builder.addRangeCondition(fieldName, lowerValue, upperValue);
     }
@@ -121,10 +124,15 @@ public class PartitionedFileSetArguments {
   }
 
   // helper to convert a string value into a field value in a partition key or filter
-  private static Comparable convertFieldValue(String where, String kind, String fieldName,
-                                              Partitioning.FieldType fieldType, String stringValue) {
+  public static Comparable convertFieldValue(String where, String kind, String fieldName,
+                                             FieldType fieldType, String stringValue, boolean acceptNull) {
     if (null == stringValue) {
-      return null;
+      if (acceptNull) {
+        return null;
+      } else {
+        throw new IllegalArgumentException(
+          String.format("Incomplete partition %s: %s for field '%s' is missing", where, kind, fieldName));
+      }
     }
     try {
       return fieldType.parse(stringValue);
@@ -134,5 +142,4 @@ public class PartitionedFileSetArguments {
                       where, kind, stringValue, fieldName, fieldType.name()), e);
     }
   }
-
 }

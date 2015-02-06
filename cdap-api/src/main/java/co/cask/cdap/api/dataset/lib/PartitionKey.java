@@ -53,6 +53,11 @@ public class PartitionKey {
   }
 
   @Override
+  public String toString() {
+    return fields.toString();
+  }
+
+  @Override
   public boolean equals(Object other) {
     return this == other ||
       (other != null && getClass() == other.getClass()

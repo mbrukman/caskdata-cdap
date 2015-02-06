@@ -28,27 +28,34 @@ import javax.annotation.Nullable;
  */
 public class PartitionFilter {
 
-  private final Map<String, Condition<? extends Comparable>> filters;
+  private final Map<String, Condition<? extends Comparable>> conditions;
 
   // we only allow creating an filter through the builder.
-  private PartitionFilter(Map<String, Condition<? extends Comparable>> filters) {
-    this.filters = filters;
+  private PartitionFilter(Map<String, Condition<? extends Comparable>> conditions) {
+    this.conditions = conditions;
   }
 
   /**
-   * Returns the individual conditions of this filter.
    * This should be used for inspection or debugging only.
    * To match this filter, use the {@link #match} method.
+   * @return the individual conditions of this filter.
    */
-  public Map<String, Condition<? extends Comparable>> getFilters() {
-    return ImmutableMap.copyOf(filters);
+  public Map<String, Condition<? extends Comparable>> getConditions() {
+    return ImmutableMap.copyOf(conditions);
+  }
+
+  /**
+   * @return the condition for a particular field.
+   */
+  public Condition<? extends Comparable> getCondition(String fieldName) {
+    return conditions.get(fieldName);
   }
 
   /**
    * Match this filter against a partition key. The key matches iff it matches all conditions.
    */
   public boolean match(PartitionKey partitionKey) {
-    for (Map.Entry<String, Condition<? extends Comparable>> condition : getFilters().entrySet())  {
+    for (Map.Entry<String, Condition<? extends Comparable>> condition : getConditions().entrySet())  {
       Comparable value = partitionKey.getField(condition.getKey());
       if (!condition.getValue().match(value)) {
         return false;
