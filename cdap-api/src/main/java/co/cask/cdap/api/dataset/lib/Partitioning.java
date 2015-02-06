@@ -56,6 +56,9 @@ public class Partitioning {
       public boolean validateType(Object value) {
         return value instanceof String;
       }
+      public String toHiveType() {
+        return "STRING";
+      }
     },
     LONG {
       public Long parse(String value) {
@@ -76,6 +79,9 @@ public class Partitioning {
       }
       public boolean validateType(Object value) {
         return value instanceof Long;
+      }
+      public String toHiveType() {
+        return "BIGINT";
       }
     },
     INT {
@@ -98,6 +104,9 @@ public class Partitioning {
       public boolean validateType(Object value) {
         return value instanceof Integer;
       }
+      public String toHiveType() {
+        return "INT";
+      }
     };
 
     public abstract Comparable parse(String value);
@@ -105,6 +114,7 @@ public class Partitioning {
     public abstract int determineLengthInBytes(byte[] bytes, int offset);
     public abstract Comparable fromBytes(byte[] bytes, int offset, int length);
     public abstract boolean validateType(Object value);
+    public abstract String toHiveType();
   }
 
   private final Map<String, FieldType> fields;

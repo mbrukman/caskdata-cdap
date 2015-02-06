@@ -39,6 +39,11 @@ import javax.annotation.Nullable;
 public interface PartitionedFileSet extends Dataset, InputFormatProvider, OutputFormatProvider {
 
   /**
+   * Get the partitioning declared for the file set.
+   */
+  public Partitioning getPartitioning();
+
+  /**
    * Add a partition for a given partition key, stored at a given path (relative to the file set's base path).
    */
   public void addPartition(PartitionKey key, String path);

@@ -79,6 +79,11 @@ public class PartitionedFileSetDataset extends AbstractDataset implements Partit
   }
 
   @Override
+  public Partitioning getPartitioning() {
+    return partitioning;
+  }
+
+  @Override
   public void addPartition(PartitionKey key, String path) {
     final byte[] rowKey = generateRowKey(key);
     Row row = partitions.get(rowKey);
@@ -98,8 +103,7 @@ public class PartitionedFileSetDataset extends AbstractDataset implements Partit
       ExploreFacade exploreFacade = exploreFacadeProvider.get();
       if (exploreFacade != null) {
         try {
-          // TODO add partition in hive
-          // exploreFacade.addPartition(getName(), key, files.getLocation(path).toURI().getPath());
+          exploreFacade.addPartition(getName(), key, files.getLocation(path).toURI().getPath());
         } catch (Exception e) {
           throw new DataSetException(String.format(
             "Unable to add partition for time %s with path %s to explore table.", key.toString(), path), e);
@@ -117,8 +121,7 @@ public class PartitionedFileSetDataset extends AbstractDataset implements Partit
       ExploreFacade exploreFacade = exploreFacadeProvider.get();
       if (exploreFacade != null) {
         try {
-          // TODO drop partition in hive
-          // exploreFacade.dropPartition(getName(), key);
+          exploreFacade.dropPartition(getName(), key);
         } catch (Exception e) {
           throw new DataSetException(String.format(
             "Unable to drop partition for time %s from explore table.", key.toString()), e);
