@@ -48,12 +48,19 @@ public class HBase94TableUtil extends HBaseTableUtil {
 
   @Override
   public HTable getHTable(Configuration conf, @Nullable String namespace, String tableName) throws IOException {
-    return new HTable(conf, getActualTableName(namespace, tableName));
+    // TODO: Think about what happens if namespace passed here is null.maybe it should never be null.
+    return new HTable(conf, getActualTableName(prefixCDAPToNamespace(namespace), tableName));
   }
 
   @Override
   public HTableDescriptor getHTableDescriptor(@Nullable String namespace, String tableName) {
-    return new HTableDescriptor(getActualTableName(namespace, tableName));
+    // TODO: Think about what happens if namespace passed here is null.maybe it should never be null.
+    return new HTableDescriptor(getActualTableName(prefixCDAPToNamespace(namespace), tableName));
+  }
+
+  @Override
+  public boolean hasNamespace(HBaseAdmin admin, Id.Namespace namespace) {
+    return true;
   }
 
   @Override

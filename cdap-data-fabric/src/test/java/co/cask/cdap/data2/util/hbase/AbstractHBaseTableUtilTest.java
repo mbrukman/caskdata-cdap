@@ -19,11 +19,13 @@ package co.cask.cdap.data2.util.hbase;
 import co.cask.cdap.api.common.Bytes;
 import co.cask.cdap.data.hbase.HBaseTestBase;
 import co.cask.cdap.data.hbase.HBaseTestFactory;
+import co.cask.cdap.proto.Id;
 import org.apache.hadoop.hbase.HColumnDescriptor;
 import org.apache.hadoop.hbase.HTableDescriptor;
 import org.apache.hadoop.hbase.client.HBaseAdmin;
 import org.apache.hadoop.hbase.client.HTable;
 import org.apache.hadoop.hbase.client.Put;
+import org.apache.hadoop.hbase.constraint.ConstraintException;
 import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.BeforeClass;
@@ -63,41 +65,80 @@ public abstract class AbstractHBaseTableUtilTest {
 
   protected abstract HBaseTableUtil getTableUtil();
 
+  protected abstract String getTableNameWithNamespace(String namespace, String tableName);
+
+  // TODO: Maybe this should be move to HBaseTableUtil
+  protected abstract boolean namespacesEnabled();
+
   @Test
   public void testTableSizeMetrics() throws Exception {
-    Assert.assertNull(getTableStats("table1"));
-    Assert.assertNull(getTableStats("table2"));
-    Assert.assertNull(getTableStats("table3"));
+    // namespace should not exist
+    if (namespacesEnabled()) {
+      Assert.assertFalse(getTableUtil().hasNamespace(hAdmin, Id.Namespace.from("namespace")));
+    }
 
-    create("table1");
-    create("table2");
-    create("table3");
+    Assert.assertNull(getTableStats("namespace", "table1"));
+    Assert.assertNull(getTableStats("namespace", "table2"));
+    Assert.assertNull(getTableStats("namespace", "table3"));
 
-    waitForMetricsToUpdate();
+    if (namespacesEnabled()) {
+      createNamespace("namespace");
+      Assert.assertTrue(getTableUtil().hasNamespace(hAdmin, Id.Namespace.from("namespace")));
 
-    Assert.assertEquals(0, getTableStats("table1").getTotalSizeMB());
-    Assert.assertEquals(0, getTableStats("table2").getTotalSizeMB());
-    Assert.assertEquals(0, getTableStats("table3").getTotalSizeMB());
+      try {
+        createNamespace("namespace");
+        Assert.fail("Should not create a namespace that already exists.");
+      } catch (IOException e) {
+      }
+    }
 
-    writeSome("table2");
-    writeSome("table3");
-
-    waitForMetricsToUpdate();
-
-    Assert.assertEquals(0, getTableStats("table1").getTotalSizeMB());
-    Assert.assertTrue(getTableStats("table2").getTotalSizeMB() > 0);
-    Assert.assertTrue(getTableStats("table3").getTotalSizeMB() > 0);
-
-    drop("table1");
-    testHBase.forceRegionFlush(Bytes.toBytes("table2"));
-    truncate("table3");
+    create("namespace", "table1");
+    create("namespace", "table2");
+    create("namespace", "table3");
 
     waitForMetricsToUpdate();
 
-    Assert.assertNull(getTableStats("table1"));
-    Assert.assertTrue(getTableStats("table2").getTotalSizeMB() > 0);
-    Assert.assertTrue(getTableStats("table2").getStoreFileSizeMB() > 0);
-    Assert.assertEquals(0, getTableStats("table3").getTotalSizeMB());
+    Assert.assertEquals(0, getTableStats("namespace", "table1").getTotalSizeMB());
+    Assert.assertEquals(0, getTableStats("namespace", "table2").getTotalSizeMB());
+    Assert.assertEquals(0, getTableStats("namespace", "table3").getTotalSizeMB());
+
+    writeSome("namespace", "table2");
+    writeSome("namespace", "table3");
+
+    waitForMetricsToUpdate();
+
+    Assert.assertEquals(0, getTableStats("namespace", "table1").getTotalSizeMB());
+    Assert.assertTrue(getTableStats("namespace", "table2").getTotalSizeMB() > 0);
+    Assert.assertTrue(getTableStats("namespace", "table3").getTotalSizeMB() > 0);
+
+    drop("namespace", "table1");
+    //TODO: TestHBase methods should accept namespace as a param
+    String hbaseNamespace = getTableUtil().prefixCDAPToNamespace("namespace");
+    testHBase.forceRegionFlush(Bytes.toBytes(getTableNameWithNamespace(hbaseNamespace, "table2")));
+    truncate("namespace", "table3");
+
+    waitForMetricsToUpdate();
+
+    Assert.assertNull(getTableStats("namespace", "table1"));
+    Assert.assertTrue(getTableStats("namespace", "table2").getTotalSizeMB() > 0);
+    Assert.assertTrue(getTableStats("namespace", "table2").getStoreFileSizeMB() > 0);
+    Assert.assertEquals(0, getTableStats("namespace", "table3").getTotalSizeMB());
+
+    if (namespacesEnabled()) {
+      try {
+        deleteNamespace("namespace");
+        Assert.fail("Should not be able to delete a non-empty namespace.");
+      } catch (ConstraintException e) {
+      }
+    }
+
+    drop("namespace", "table2");
+    drop("namespace", "table3");
+
+    if (namespacesEnabled()) {
+      deleteNamespace("namespace");
+      Assert.assertFalse(getTableUtil().hasNamespace(hAdmin, Id.Namespace.from("namespace")));
+    }
   }
 
   private void waitForMetricsToUpdate() throws InterruptedException {
@@ -107,8 +148,8 @@ public abstract class AbstractHBaseTableUtilTest {
     TimeUnit.SECONDS.sleep(4);
   }
 
-  private void writeSome(String tableName) throws IOException {
-    HTable table = new HTable(testHBase.getConfiguration(), tableName);
+  private void writeSome(String namespace, String tableName) throws IOException {
+    HTable table = getTableUtil().getHTable(testHBase.getConfiguration(), namespace, tableName);
     try {
       // writing at least couple megs to reflect in "megabyte"-based metrics
       for (int i = 0; i < 8; i++) {
@@ -121,25 +162,39 @@ public abstract class AbstractHBaseTableUtilTest {
     }
   }
 
-  private void create(String tableName) throws IOException {
-    HTableDescriptor desc = new HTableDescriptor(tableName);
-    desc.addFamily(new HColumnDescriptor("d"));
-    getTableUtil().createTableIfNotExists(hAdmin, tableName, desc);
+  private void createNamespace(String namespace) throws IOException {
+    getTableUtil().createNamespace(hAdmin, Id.Namespace.from(namespace));
   }
 
-  private void truncate(String tableName) throws IOException {
-    HTableDescriptor tableDescriptor = hAdmin.getTableDescriptor(Bytes.toBytes(tableName));
-    hAdmin.disableTable(tableName);
-    hAdmin.deleteTable(tableName);
+  private void deleteNamespace(String namespace) throws IOException {
+    getTableUtil().deleteNamespace(hAdmin, Id.Namespace.from(namespace));
+  }
+
+  private void create(String namespace, String tableName) throws IOException {
+    HBaseTableUtil tableUtil = getTableUtil();
+    HTableDescriptor desc = tableUtil.getHTableDescriptor(namespace, tableName);
+    desc.addFamily(new HColumnDescriptor("d"));
+    tableUtil.createTableIfNotExists(hAdmin, tableName, desc);
+  }
+
+  private void truncate(String namespace, String tableName) throws IOException {
+    HBaseTableUtil tableUtil = getTableUtil();
+    HTableDescriptor tableDescriptor = tableUtil.getHTableDescriptor(namespace, tableName);
+    String hbaseNamespace = tableUtil.prefixCDAPToNamespace(namespace);
+    hAdmin.disableTable(getTableNameWithNamespace(hbaseNamespace, tableName));
+    hAdmin.deleteTable(getTableNameWithNamespace(hbaseNamespace, tableName));
     hAdmin.createTable(tableDescriptor);
   }
 
-  private void drop(String tableName) throws IOException {
-    hAdmin.disableTable(tableName);
-    hAdmin.deleteTable(tableName);
+  private void drop(String namespace, String tableName) throws IOException {
+    String hbaseNamespace = getTableUtil().prefixCDAPToNamespace(namespace);
+    hAdmin.disableTable(getTableNameWithNamespace(hbaseNamespace, tableName));
+    hAdmin.deleteTable(getTableNameWithNamespace(hbaseNamespace, tableName));
   }
 
-  private HBaseTableUtil.TableStats getTableStats(String tableName) throws IOException {
-    return getTableUtil().getTableStats(hAdmin).get(tableName);
+  private HBaseTableUtil.TableStats getTableStats(String namespace, String tableName) throws IOException {
+    HBaseTableUtil tableUtil = getTableUtil();
+    String hbaseNamespace = tableUtil.prefixCDAPToNamespace(namespace);
+    return tableUtil.getTableStats(hAdmin).get(getTableNameWithNamespace(hbaseNamespace, tableName));
   }
 }

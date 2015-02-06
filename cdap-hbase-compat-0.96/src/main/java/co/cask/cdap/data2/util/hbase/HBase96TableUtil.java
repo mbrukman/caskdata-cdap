@@ -48,24 +48,39 @@ public class HBase96TableUtil extends HBaseTableUtil {
 
   @Override
   public HTable getHTable(Configuration conf, @Nullable String namespace, String tableName) throws IOException {
-    return new HTable(conf, TableName.valueOf(namespace, tableName));
+    // TODO: Think about what happens if namespace passed here is null.maybe it should never be null.
+    return new HTable(conf, TableName.valueOf(prefixCDAPToNamespace(namespace), tableName));
   }
 
   @Override
   public HTableDescriptor getHTableDescriptor(@Nullable String namespace, String tableName) {
+    // TODO: Think about what happens if namespace passed here is null.maybe it should never be null.
     // 'namespace' in TableName.valueOf is Nullable, defaults to default
-    return new HTableDescriptor(TableName.valueOf(namespace, tableName));
+    return new HTableDescriptor(TableName.valueOf(prefixCDAPToNamespace(namespace), tableName));
+  }
+
+  @Override
+  public boolean hasNamespace(HBaseAdmin admin, Id.Namespace namespace) {
+    try {
+      admin.getNamespaceDescriptor(prefixCDAPToNamespace(namespace.getId()));
+      return true;
+    } catch (IOException e) {
+      return false;
+    }
   }
 
   @Override
   public void createNamespace(HBaseAdmin admin, Id.Namespace namespace) throws IOException {
-    NamespaceDescriptor namespaceDescriptor = NamespaceDescriptor.create(namespace.getId()).build();
-    admin.createNamespace(namespaceDescriptor);
+    if (!hasNamespace(admin, namespace)) {
+      NamespaceDescriptor namespaceDescriptor =
+        NamespaceDescriptor.create(prefixCDAPToNamespace(namespace.getId())).build();
+      admin.createNamespace(namespaceDescriptor);
+    }
   }
 
   @Override
   public void deleteNamespace(HBaseAdmin admin, Id.Namespace namespace) throws IOException {
-    admin.deleteNamespace(namespace.getId());
+    admin.deleteNamespace(prefixCDAPToNamespace(namespace.getId()));
   }
 
   @Override

@@ -388,6 +388,10 @@ public abstract class HBaseTableUtil {
     return info;
   }
 
+  protected String prefixCDAPToNamespace(String namespace) {
+    return "cdap_" + namespace;
+  }
+
   /**
    * Creates a new {@link HTable} which may contain an HBase namespace depending on the HBase version
    *
@@ -408,11 +412,21 @@ public abstract class HBaseTableUtil {
   public abstract HTableDescriptor getHTableDescriptor(@Nullable String namespace, String tableName);
 
   /**
+   * Checks if an HBase namespace already exists
+   *
+   * @param admin the {@link HBaseAdmin} to use to communicate with HBase
+   * @param namespace the {@link Id.Namespace} to check
+   * TODO: Using {@link Id.Namespace} maybe cumbersome here, maybe switch to String
+   */
+  public abstract boolean hasNamespace(HBaseAdmin admin, Id.Namespace namespace);
+
+  /**
    * Creates an HBase namespace, if it does not already exist
    *
    * @param admin the {@link HBaseAdmin} to use to communicate with HBase
    * @param namespace the {@link Id.Namespace} to create
    * @throws IOException if the namespace already exists in HBase
+   * TODO: Using {@link Id.Namespace} maybe cumbersome here, maybe switch to String
    */
   public abstract void createNamespace(HBaseAdmin admin, Id.Namespace namespace) throws IOException;
 
@@ -422,6 +436,7 @@ public abstract class HBaseTableUtil {
    * @param admin the {@link HBaseAdmin} to use to communicate with HBase
    * @param namespace the {@link Id.Namespace} to delete
    * @throws IOException if the namespace does not exist in HBase
+   * TODO: Using {@link Id.Namespace} maybe cumbersome here, maybe switch to String
    */
   public abstract void deleteNamespace(HBaseAdmin admin, Id.Namespace namespace) throws IOException;
 
