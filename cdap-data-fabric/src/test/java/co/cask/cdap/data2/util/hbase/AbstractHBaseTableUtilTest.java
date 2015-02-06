@@ -102,7 +102,8 @@ public abstract class AbstractHBaseTableUtilTest {
     Assert.assertTrue(getTableStats("namespace", "table3").getTotalSizeMB() > 0);
 
     drop("namespace", "table1");
-    //TODO: TestHBase methods should accept namespace as a param
+
+    //TODO: TestHBase methods should accept namespace as a param, but will add them incrementally
     String hbaseNamespace = tableUtil.prefixCDAPToNamespace("namespace");
     testHBase.forceRegionFlush(Bytes.toBytes(tableUtil.getTableNameWithNamespace(hbaseNamespace, "table2")));
     truncate("namespace", "table3");

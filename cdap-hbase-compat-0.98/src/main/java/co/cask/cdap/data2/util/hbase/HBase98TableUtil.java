@@ -88,7 +88,7 @@ public class HBase98TableUtil extends HBaseTableUtil {
   }
 
   @Override
-  protected String getTableNameWithNamespace(String namespace, String tableName) {
+  public String getTableNameWithNamespace(String namespace, String tableName) {
     return namespace + ":" + tableName;
   }
 

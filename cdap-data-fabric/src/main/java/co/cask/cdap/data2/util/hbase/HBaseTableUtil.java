@@ -453,7 +453,7 @@ public abstract class HBaseTableUtil {
    * @param tableName the table name
    * @return the fully qualified table name containing namespace
    */
-  protected abstract String getTableNameWithNamespace(String namespace, String tableName);
+  public abstract String getTableNameWithNamespace(String namespace, String tableName);
 
   public abstract void setCompression(HColumnDescriptor columnDescriptor, CompressionType type);
 
