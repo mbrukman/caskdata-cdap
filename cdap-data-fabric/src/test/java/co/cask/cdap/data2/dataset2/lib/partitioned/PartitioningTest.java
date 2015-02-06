@@ -125,6 +125,7 @@ public class PartitioningTest {
       int determined = type.determineLengthInBytes(byteValue, 0);
       Assert.assertEquals(byteValue.length, determined);
       Assert.assertEquals(value, type.fromBytes(byteValue, 0, determined));
+      Assert.assertEquals(value, type.parse(value.toString()));
       byteValues[index++] = byteValue;
     }
     for (int i = 0; i < values.length; i++) {

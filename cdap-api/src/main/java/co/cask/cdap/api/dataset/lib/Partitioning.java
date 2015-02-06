@@ -160,9 +160,12 @@ public class Partitioning {
 
     /**
      * Add a field with a given name and type.
+     *
      * @param name the field name
      * @param type the type of the field
-     * @throws java.lang.IllegalArgumentException if the field name already exists
+     *
+     * @throws java.lang.IllegalArgumentException if the field name is null, empty, or already exists,
+     *         or if the type is null.
      */
     public Builder addField(@NotNull String name, @NotNull FieldType type) {
       Preconditions.checkArgument(name != null && !name.isEmpty(), "Field name cannot be null or empty.");
@@ -176,8 +179,10 @@ public class Partitioning {
 
     /**
      * Add field of type STRING.
+     *
      * @param name the field name
-     * @throws java.lang.IllegalArgumentException if the field name already exists
+     *
+     * @throws java.lang.IllegalArgumentException if the field name is null, empty, or already exists.
      */
     public Builder addStringField(String name) {
       return addField(name, FieldType.STRING);
@@ -185,8 +190,10 @@ public class Partitioning {
 
     /**
      * Add field of type INT.
+     *
      * @param name the field name
-     * @throws java.lang.IllegalArgumentException if the field name already exists
+     *
+     * @throws java.lang.IllegalArgumentException if the field name is null, empty, or already exists.
      */
     public Builder addIntField(String name) {
       return addField(name, FieldType.INT);
@@ -194,8 +201,10 @@ public class Partitioning {
 
     /**
      * Add field of type LONG.
+     *
      * @param name the field name
-     * @throws java.lang.IllegalArgumentException if the field name already exists
+     *
+     * @throws java.lang.IllegalArgumentException if the field name is null, empty, or already exists.
      */
     public Builder addLongField(String name) {
       return addField(name, FieldType.LONG);
@@ -203,6 +212,8 @@ public class Partitioning {
 
     /**
      * Create the partitioning.
+     *
+     * @throws java.lang.IllegalStateException if no fields have been added
      */
     public Partitioning build() {
       Preconditions.checkState(!fields.isEmpty(), "Partitioning cannot be empty.");

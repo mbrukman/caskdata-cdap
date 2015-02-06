@@ -18,6 +18,7 @@ package co.cask.cdap.api.dataset.lib;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Maps;
+import com.sun.istack.internal.NotNull;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -32,9 +33,7 @@ public class PartitionKey {
   /**
    * Private constructor to force use of the builder.
    */
-  private PartitionKey(Map<String, Comparable> fields) {
-    Preconditions.checkNotNull(fields, "Partition fields cannot be null.");
-    Preconditions.checkArgument(!fields.isEmpty(), "Partition fields cannot be empty.");
+  private PartitionKey(@NotNull Map<String, Comparable> fields) {
     this.fields = fields;
   }
 
@@ -87,18 +86,31 @@ public class PartitionKey {
 
     /**
      * Add a field with a given name and value.
+     *
      * @param name the field name
      * @param value the value of the field
+     *
+     * @throws java.lang.IllegalArgumentException if the field name is null, empty, or already exists,
+     *         or if the value is null.
      */
     public <T extends Comparable<T>> Builder addField(String name, T value) {
+      Preconditions.checkArgument(name != null && !name.isEmpty(), "field name cannot be null or empty.");
+      Preconditions.checkArgument(value != null, "field name cannot be null.");
+      if (fields.containsKey(name)) {
+        throw new IllegalArgumentException(String.format("Field '%s' already exists in partition key.", name));
+      }
       fields.put(name, value);
       return this;
     }
 
     /**
      * Add field of type STRING.
+     *
      * @param name the field name
      * @param value the value of the field
+     *
+     * @throws java.lang.IllegalArgumentException if the field name is null, empty, or already exists,
+     *         or if the value is null.
      */
     public Builder addStringField(String name, String value) {
       return addField(name, value);
@@ -106,8 +118,12 @@ public class PartitionKey {
 
     /**
      * Add field of type INT.
+     *
      * @param name the field name
      * @param value the value of the field
+     *
+     * @throws java.lang.IllegalArgumentException if the field name is null, empty, or already exists,
+     *         or if the value is null.
      */
     public Builder addIntField(String name, int value) {
       return addField(name, value);
@@ -115,8 +131,12 @@ public class PartitionKey {
 
     /**
      * Add field of type LONG.
+     *
      * @param name the field name
      * @param value the value of the field
+     *
+     * @throws java.lang.IllegalArgumentException if the field name is null, empty, or already exists,
+     *         or if the value is null.
      */
     public Builder addLongField(String name, long value) {
       return addField(name, value);
@@ -124,8 +144,11 @@ public class PartitionKey {
 
     /**
      * Create the partition key.
+     *
+     * @throws java.lang.IllegalStateException if no fields have been added
      */
     public PartitionKey build() {
+      Preconditions.checkState(!fields.isEmpty(), "Partition key cannot be empty.");
       return new PartitionKey(fields);
     }
   }
