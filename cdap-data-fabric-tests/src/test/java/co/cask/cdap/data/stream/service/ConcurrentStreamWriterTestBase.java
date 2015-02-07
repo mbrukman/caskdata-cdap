@@ -193,8 +193,7 @@ public abstract class ConcurrentStreamWriterTestBase {
 
     StreamMetaStore streamMetaStore = new InMemoryStreamMetaStore();
     streamMetaStore.addStream(accountId, streamName);
-    StreamCoordinatorClient streamCoordinatorClient = new InMemoryStreamCoordinatorClient(CConfiguration.create(),
-                                                                                          streamAdmin);
+    StreamCoordinatorClient streamCoordinatorClient = new InMemoryStreamCoordinatorClient();
     return new ConcurrentStreamWriter(streamCoordinatorClient, streamAdmin, streamMetaStore,
                                       writerFactory, threads, new TestMetricsCollectorFactory());
   }
