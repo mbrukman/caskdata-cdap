@@ -38,6 +38,7 @@ public class PartitionFilter {
   /**
    * This should be used for inspection or debugging only.
    * To match this filter, use the {@link #match} method.
+   *
    * @return the individual conditions of this filter.
    */
   public Map<String, Condition<? extends Comparable>> getConditions() {
@@ -53,6 +54,8 @@ public class PartitionFilter {
 
   /**
    * Match this filter against a partition key. The key matches iff it matches all conditions.
+   *
+   * @throws java.lang.IllegalArgumentException if one of the field types in the partition key are incompatible
    */
   public boolean match(PartitionKey partitionKey) {
     for (Map.Entry<String, Condition<? extends Comparable>> condition : getConditions().entrySet())  {
@@ -79,21 +82,28 @@ public class PartitionFilter {
 
     /**
      * Add a condition for a given field name with an inclusive lower and an exclusive upper bound.
-     * Either bound can be null, meaning unbounded in that direction.
+     * Either bound can be null, meaning unbounded in that direction. If both upper and lower bound are
+     * null, then this condition has no effect and is not added to the filter.
+     *
      * @param field The name of the partition field
      * @param lower the inclusive lower bound. If null, there is no lower bound.
      * @param upper the exclusive upper bound. If null, there is no upper bound.
      * @param <T> The type of the partition field
+     *
+     * @throws java.lang.IllegalArgumentException if the field name is null, empty, or already exists,
+     *         or if both bounds are equal (meaning the condition cannot be satisfied).
      */
     public <T extends Comparable<T>> Builder addRangeCondition(String field,
                                                                @Nullable T lower,
                                                                @Nullable T upper) {
+      Preconditions.checkArgument(field != null && !field.isEmpty(), "field name cannot be null or empty.");
+      Preconditions.checkArgument(lower == null || !lower.equals(upper), "Unsatisfiable condition: " +
+        "lower bound and upper bound have equal value: '" + lower + "'");
+      if (map.containsKey(field)) {
+        throw new IllegalArgumentException(String.format("Field '%s' already exists in partition filter.", field));
+      }
       if (null == lower && null == upper) { // filter is pointless if there is no bound
         return this;
-      }
-      if (lower != null && lower.equals(upper)) { // filter can't be satisfied if lower equals upper
-        throw new IllegalArgumentException(
-          "Unsatisfiable condition: lower bound and upper bound have equal value: '" + lower + "'");
       }
       map.put(field, new Condition<T>(lower, upper));
       return this;
@@ -101,21 +111,31 @@ public class PartitionFilter {
 
     /**
      * Add a condition that matches by equality.
+     *
      * @param field The name of the partition field
      * @param value The value that matching field values must have
      * @param <T> The type of the partition field
+     *
+     * @throws java.lang.IllegalArgumentException if the field name is null, empty, or already exists,
+     *         or if the value is null.
      */
     public <T extends Comparable<T>> Builder addValueCondition(String field, T value) {
-      if (value != null) {
-        map.put(field, new Condition<T>(value, value));
+      Preconditions.checkArgument(field != null && !field.isEmpty(), "field name cannot be null or empty.");
+      Preconditions.checkArgument(value != null, "condition value cannot be null.");
+      if (map.containsKey(field)) {
+        throw new IllegalArgumentException(String.format("Field '%s' already exists in partition filter.", field));
       }
+      map.put(field, new Condition<T>(value, value));
       return this;
     }
 
     /**
      * Create the PartitionFilter.
+     *
+     * @throws java.lang.IllegalStateException if no fields have been added
      */
     public PartitionFilter build() {
+      Preconditions.checkState(!map.isEmpty(), "Partition filter cannot be empty.");
       return new PartitionFilter(map);
     }
   }
@@ -137,14 +157,32 @@ public class PartitionFilter {
       this.upper = upper;
     }
 
+    /**
+     * @return the lower bound of this condition
+     */
     public T getLower() {
       return lower;
     }
 
+    /**
+     * @return the upper bound of this condition
+     */
     public T getUpper() {
       return upper;
     }
 
+    /**
+     * @return whether this condition matches a single value
+     */
+    public boolean isSingleValue() {
+      return lower == upper;
+    }
+
+    /**
+     * Match the condition against a given value. The value must be of the same type as the bounds of the condition.
+     *
+     * @throws java.lang.IllegalArgumentException if the value has an incompatible type
+     */
     public <V extends Comparable> boolean match(V value) {
       try {
         // if lower and upper are identical, then this represents an equality condition.
