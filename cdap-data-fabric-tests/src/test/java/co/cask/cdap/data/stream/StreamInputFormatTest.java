@@ -16,11 +16,21 @@
 package co.cask.cdap.data.stream;
 
 import co.cask.cdap.api.common.Bytes;
+import co.cask.cdap.api.data.format.FormatSpecification;
+import co.cask.cdap.api.data.format.StructuredRecord;
+import co.cask.cdap.api.data.schema.Schema;
 import co.cask.cdap.api.flow.flowlet.StreamEvent;
+import co.cask.cdap.api.stream.GenericStreamEventData;
 import co.cask.cdap.api.stream.StreamEventData;
 import co.cask.cdap.api.stream.StreamEventDecoder;
+import co.cask.cdap.data.format.TextRecordFormat;
+import co.cask.cdap.data.stream.decoder.BytesStreamEventDecoder;
+import co.cask.cdap.data.stream.decoder.IdentityStreamEventDecoder;
+import co.cask.cdap.data.stream.decoder.StringStreamEventDecoder;
+import co.cask.cdap.data.stream.decoder.TextStreamEventDecoder;
 import com.google.common.base.Charsets;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.io.Files;
 import org.apache.hadoop.conf.Configuration;
@@ -36,6 +46,7 @@ import org.apache.hadoop.mapred.TaskAttemptID;
 import org.apache.hadoop.mapreduce.InputSplit;
 import org.apache.hadoop.mapreduce.Job;
 import org.apache.hadoop.mapreduce.Mapper;
+import org.apache.hadoop.mapreduce.RecordReader;
 import org.apache.hadoop.mapreduce.Reducer;
 import org.apache.hadoop.mapreduce.TaskAttemptContext;
 import org.apache.hadoop.mapreduce.lib.output.TextOutputFormat;
@@ -49,6 +60,7 @@ import java.io.BufferedReader;
 import java.io.File;
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.StringTokenizer;
@@ -228,12 +240,27 @@ public class StreamInputFormatTest {
     ImmutableMap.Builder<String, String> headers = ImmutableMap.builder();
     headers.put("key1", "value1");
     headers.put("key2", "value2");
-    ByteBuffer buffer = ByteBuffer.wrap("testdata".getBytes(Charsets.UTF_8));
-    StreamEvent event = new StreamEvent(new StreamEventData(headers.build(), buffer), System.currentTimeMillis());
-    StreamEventDecoder decoder = new IdentityStreamEventDecoder();
-    StreamEventDecoder.DecodeResult result = decoder.decode(event, new StreamEventDecoder.DecodeResult());
+    ByteBuffer buffer = Charsets.UTF_8.encode("testdata");
+    StreamEvent event = new StreamEvent(headers.build(), buffer, System.currentTimeMillis());
+    StreamEventDecoder<LongWritable, StreamEvent> decoder = new IdentityStreamEventDecoder();
+    StreamEventDecoder.DecodeResult<LongWritable, StreamEvent> result
+      = new StreamEventDecoder.DecodeResult<LongWritable, StreamEvent>();
+    result = decoder.decode(event, result);
     Assert.assertEquals(new LongWritable(event.getTimestamp()), result.getKey());
     Assert.assertEquals(event, result.getValue());
+  }
+
+  @Test
+  public void testStringStreamEventDecoder() {
+    String body = "Testing";
+    StreamEvent event = new StreamEvent(ImmutableMap.<String, String>of(), Charsets.UTF_8.encode(body));
+    StreamEventDecoder<LongWritable, String> decoder = new StringStreamEventDecoder();
+    StreamEventDecoder.DecodeResult<LongWritable, String> result
+      = new StreamEventDecoder.DecodeResult<LongWritable, String>();
+    result = decoder.decode(event, result);
+
+    Assert.assertEquals(event.getTimestamp(), result.getKey().get());
+    Assert.assertEquals(body, result.getValue());
   }
 
   @Test
@@ -243,6 +270,8 @@ public class StreamInputFormatTest {
     Assert.assertEquals(BytesStreamEventDecoder.class, StreamInputFormat.getDecoderClass(conf));
     StreamInputFormat.inferDecoderClass(conf, Text.class);
     Assert.assertEquals(TextStreamEventDecoder.class, StreamInputFormat.getDecoderClass(conf));
+    StreamInputFormat.inferDecoderClass(conf, String.class);
+    Assert.assertEquals(StringStreamEventDecoder.class, StreamInputFormat.getDecoderClass(conf));
     StreamInputFormat.inferDecoderClass(conf, StreamEvent.class);
     Assert.assertEquals(IdentityStreamEventDecoder.class, StreamInputFormat.getDecoderClass(conf));
     StreamInputFormat.inferDecoderClass(conf, StreamEventData.class);
@@ -288,6 +317,55 @@ public class StreamInputFormatTest {
     Assert.assertEquals("test", Bytes.toString(output.getBody()));
     // check that there is nothing more to read
     Assert.assertFalse(recordReader.nextKeyValue());
+  }
+
+  @Test
+  public void testFormatStreamRecordReader() throws IOException, InterruptedException {
+    File inputDir = tmpFolder.newFolder();
+    File partition = new File(inputDir,  "1.1000");
+    partition.mkdirs();
+    File eventFile = new File(partition, "bucket.1.0." + StreamFileType.EVENT.getSuffix());
+    File indexFile = new File(partition, "bucket.1.0." + StreamFileType.INDEX.getSuffix());
+
+    // write 1 event
+    StreamDataFileWriter writer = new StreamDataFileWriter(Files.newOutputStreamSupplier(eventFile),
+                                                           Files.newOutputStreamSupplier(indexFile),
+                                                           100L);
+
+    StreamEvent streamEvent = new StreamEvent(ImmutableMap.of("header1", "value1", "header2", "value2"),
+                                              Charsets.UTF_8.encode("hello world"),
+                                              1000);
+    writer.append(streamEvent);
+    writer.close();
+
+    FormatSpecification formatSpec =
+      new FormatSpecification(TextRecordFormat.class.getName(),
+                              Schema.recordOf("event", Schema.Field.of("body", Schema.of(Schema.Type.STRING))),
+                              Collections.<String, String>emptyMap());
+    Configuration conf = new Configuration();
+    StreamInputFormat.setBodyFormatSpecification(conf, formatSpec);
+    StreamInputFormat.setStreamPath(conf, inputDir.toURI());
+    TaskAttemptContext context = new TaskAttemptContextImpl(conf, new TaskAttemptID());
+
+    StreamInputFormat format = new StreamInputFormat();
+
+    // read all splits and store the results in the list
+    List<GenericStreamEventData<StructuredRecord>> recordsRead = Lists.newArrayList();
+    List<InputSplit> inputSplits = format.getSplits(context);
+    for (InputSplit split : inputSplits) {
+      RecordReader<LongWritable, GenericStreamEventData<StructuredRecord>> recordReader =
+        format.createRecordReader(split, context);
+      recordReader.initialize(split, context);
+      while (recordReader.nextKeyValue()) {
+        recordsRead.add(recordReader.getCurrentValue());
+      }
+    }
+
+    // should only have read 1 record
+    Assert.assertEquals(1, recordsRead.size());
+    GenericStreamEventData<StructuredRecord> eventData = recordsRead.get(0);
+    Assert.assertEquals(streamEvent.getHeaders(), eventData.getHeaders());
+    Assert.assertEquals("hello world", eventData.getBody().get("body"));
   }
 
   private void generateEvents(File inputDir, int numEvents, long startTime, long timeIncrement,

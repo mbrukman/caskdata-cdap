@@ -1,6 +1,6 @@
 .. meta::
     :author: Cask Data, Inc.
-    :copyright: Copyright © 2014 Cask Data, Inc.
+    :copyright: Copyright © 2014-2015 Cask Data, Inc.
 
 .. _spark:
 
@@ -13,7 +13,7 @@ data into memory and query them repeatedly. This makes it suitable for both iter
 interactive programs. Similar to MapReduce, Spark can access **Datasets** as both input
 and output. Spark programs in CDAP can be written in either Java or Scala.
 
-In the current release, Spark is supported only in the Standalone CDAP.
+In the current release, Spark (version 1.0 or higher) is supported only in the Standalone CDAP. 
 
 To process data using Spark, specify ``addSpark()`` in your Application specification::
 
@@ -41,7 +41,7 @@ implementation of three methods:
     }
 
 The configure method is similar to the one found in Flows and
-MapReduce jobs. It defines the name, description, and the class containing the main method of a Spark program.
+MapReduce programs. It defines the name, description, and the class containing the main method of a Spark program.
 
 The ``beforeSubmit()`` method is invoked at runtime, before the
 Spark program is executed. Because many Spark programs do not
@@ -98,6 +98,11 @@ Spark programs in CDAP can directly access **Dataset** similar to the way a MapR
 Procedure can. These programs can create Spark's Resilient Distributed Dataset (RDD) by
 reading a Dataset and can also write RDD to a Dataset.
 
+In order to access a Dataset in Spark, both the key and value classes have to be serializable.
+Otherwise, Spark will fail to read or write them.
+For example, the Table Dataset has a value type of Row, which is not serializable.
+An ``ObjectStore`` dataset can be used, provided its classes are serializable.
+
 - Creating an RDD from Dataset
 
   - Java:
@@ -151,7 +156,7 @@ It’s possible to read parts of a Stream by specifying start and end timestamps
     sc.readFromStream(streamName, vClass, startTime, endTime);
 
 You can read custom objects from a Stream by providing a decoderType extended from
-`StreamEventDecoder <../reference-manual/javadocs/co/cask/cdap/api/stream/StreamEventDecoder.html>`__::
+`StreamEventDecoder <../../reference-manual/javadocs/co/cask/cdap/api/stream/StreamEventDecoder.html>`__::
 
     sc.readFromStream(streamName, vClass, startTime, endTime, decoderType);
 
@@ -209,6 +214,10 @@ You can also emit custom user metrics from the worker nodes of your Spark Progra
         }
       }
     });
+    
+Spark in Workflows
+------------------
+Spark programs in CDAP can also be added to a :ref:`Workflow <workflows>`, similar to a :ref:`MapReduce <mapreduce>`.
 
 .. rubric::  Examples of Using Spark Programs
 

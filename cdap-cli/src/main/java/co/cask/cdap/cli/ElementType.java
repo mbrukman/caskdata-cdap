@@ -1,5 +1,5 @@
 /*
- * Copyright © 2014 Cask Data, Inc.
+ * Copyright © 2014-2015 Cask Data, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not
  * use this file except in compliance with the License. You may obtain a copy of
@@ -26,28 +26,32 @@ import java.util.Set;
  */
 public enum ElementType {
 
+  ADAPTER("Adapter", "Adapters", "adapter", "adapters",
+          null, null, ArgumentName.ADAPTER),
+
+  INSTANCE("Instance", "Instance", "instance", "instance",
+           null, null, ArgumentName.INSTANCE, Capability.PREFERENCES),
+
+  NAMESPACE("Namespace", "Namespaces", "namespace", "namespaces",
+            null, null, ArgumentName.NAMESPACE_ID, Capability.PREFERENCES),
+
   APP("application", "applications", "app", "apps",
-      null, null, ArgumentName.APP,
-      Capability.LIST),
+      null, null, ArgumentName.APP, Capability.LIST, Capability.PREFERENCES),
 
   DATASET("Dataset", "Datasets", "dataset", "datasets",
-          null, null, ArgumentName.DATASET,
-          Capability.LIST),
+          null, null, ArgumentName.DATASET, Capability.LIST),
 
   DATASET_MODULE("Dataset module", "Dataset modules", "dataset module", "dataset modules",
-                 null, null, ArgumentName.DATASET_MODULE,
-                 Capability.LIST),
+                 null, null, ArgumentName.DATASET_MODULE, Capability.LIST),
 
   DATASET_TYPE("Dataset type", "Dataset types", "dataset type", "dataset types",
-               null, null, ArgumentName.DATASET_TYPE,
-               Capability.LIST),
+               null, null, ArgumentName.DATASET_TYPE, Capability.LIST),
 
   QUERY("Dataset query", "Dataset queries", "dataset query", "dataset queries",
         null, null, ArgumentName.QUERY),
 
   STREAM("Stream", "Streams", "stream", "streams",
-         null, null, ArgumentName.STREAM,
-         Capability.LIST),
+         null, null, ArgumentName.STREAM, Capability.LIST),
 
   PROGRAM("program", "programs", "program", "programs",
           null, null, ArgumentName.PROGRAM),
@@ -56,13 +60,13 @@ public enum ElementType {
        ProgramType.FLOW, null,
        ArgumentName.FLOW,
        Capability.RUNS, Capability.LOGS, Capability.LIVE_INFO, Capability.STATUS, Capability.START_STOP,
-       Capability.LIST, Capability.RUNTIME_ARGS),
+       Capability.LIST, Capability.RUNTIME_ARGS, Capability.PREFERENCES),
 
   WORKFLOW("Workflow", "Workflows", "workflow", "workflows",
            ProgramType.WORKFLOW, null,
            ArgumentName.WORKFLOW,
            Capability.RUNS, Capability.STATUS, Capability.START_STOP,
-           Capability.LIST, Capability.RUNTIME_ARGS),
+           Capability.LIST, Capability.RUNTIME_ARGS, Capability.PREFERENCES),
 
   FLOWLET("Flowlet", "Flowlets", "flowlet", "flowlets",
           null, ProgramType.FLOW,
@@ -73,29 +77,29 @@ public enum ElementType {
             ProgramType.PROCEDURE, null,
             ArgumentName.PROCEDURE,
             Capability.RUNS, Capability.SCALE, Capability.LOGS, Capability.LIVE_INFO, Capability.STATUS,
-            Capability.START_STOP, Capability.LIST, Capability.RUNTIME_ARGS),
+            Capability.START_STOP, Capability.LIST, Capability.RUNTIME_ARGS, Capability.PREFERENCES),
 
   SERVICE("Service", "Services", "service", "services",
           ProgramType.SERVICE, null,
           ArgumentName.SERVICE,
-          Capability.START_STOP, Capability.STATUS, Capability.LIST, Capability.RUNTIME_ARGS),
+          Capability.START_STOP, Capability.STATUS, Capability.LIST, Capability.RUNTIME_ARGS, Capability.PREFERENCES),
 
   RUNNABLE("Runnable", "Runnables", "runnable", "runnables",
            null, ProgramType.SERVICE,
            ArgumentName.RUNNABLE,
            Capability.SCALE, Capability.RUNS, Capability.LOGS),
 
-  MAPREDUCE("MapReduce Job", "MapReduce Jobs", "mapreduce", "mapreduce",
+  MAPREDUCE("MapReduce Program", "MapReduce Programs", "mapreduce", "mapreduce programs",
             ProgramType.MAPREDUCE, null,
             ArgumentName.MAPREDUCE,
             Capability.LOGS, Capability.RUNS, Capability.STATUS, Capability.START_STOP, Capability.LIST,
-            Capability.RUNTIME_ARGS),
+            Capability.RUNTIME_ARGS, Capability.PREFERENCES),
 
-  SPARK("Spark Program", "Spark Programs", "spark", "spark",
+  SPARK("Spark Program", "Spark Programs", "spark", "spark programs",
             ProgramType.SPARK, null,
             ArgumentName.SPARK,
             Capability.LOGS, Capability.RUNS, Capability.STATUS, Capability.START_STOP, Capability.LIST,
-            Capability.RUNTIME_ARGS);
+            Capability.RUNTIME_ARGS, Capability.PREFERENCES);
 
   private final String pluralName;
   private final String pluralPrettyName;
@@ -106,10 +110,8 @@ public enum ElementType {
   private final String prettyName;
   private final ArgumentName argumentName;
 
-  ElementType(String prettyName, String pluralPrettyName,
-              String name, String pluralName,
-              ProgramType programType, ProgramType parentType,
-              ArgumentName argumentName,
+  ElementType(String prettyName, String pluralPrettyName, String name, String pluralName,
+              ProgramType programType, ProgramType parentType, ArgumentName argumentName,
               Capability... capabilities) {
     this.prettyName = prettyName;
     this.pluralPrettyName = pluralPrettyName;
@@ -194,7 +196,11 @@ public enum ElementType {
     return capabilities.contains(Capability.RUNTIME_ARGS);
   }
 
+  public boolean hasPreferences() {
+    return capabilities.contains(Capability.PREFERENCES);
+  }
+
   private enum Capability {
-    SCALE, RUNS, LOGS, LIVE_INFO, STATUS, START_STOP, LIST, RUNTIME_ARGS
+    SCALE, RUNS, LOGS, LIVE_INFO, STATUS, START_STOP, LIST, RUNTIME_ARGS, PREFERENCES
   }
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright © 2014 Cask Data, Inc.
+ * Copyright © 2014-2015 Cask Data, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not
  * use this file except in compliance with the License. You may obtain a copy of
@@ -16,20 +16,24 @@
 
 package co.cask.cdap.internal.app.runtime.schedule;
 
+import co.cask.cdap.api.schedule.ScheduleSpecification;
 import co.cask.cdap.app.program.Program;
 import co.cask.cdap.app.runtime.Arguments;
 import co.cask.cdap.app.runtime.ProgramController;
 import co.cask.cdap.app.runtime.ProgramOptions;
 import co.cask.cdap.app.runtime.ProgramRuntimeService;
 import co.cask.cdap.app.store.Store;
+import co.cask.cdap.config.PreferencesStore;
 import co.cask.cdap.internal.UserErrors;
 import co.cask.cdap.internal.UserMessages;
 import co.cask.cdap.internal.app.runtime.AbstractListener;
 import co.cask.cdap.internal.app.runtime.BasicArguments;
+import co.cask.cdap.internal.app.runtime.ProgramOptionConstants;
 import co.cask.cdap.internal.app.runtime.SimpleProgramOptions;
 import co.cask.cdap.proto.Id;
 import co.cask.cdap.proto.ProgramType;
 import com.google.common.base.Preconditions;
+import com.google.common.collect.Maps;
 import org.apache.twill.common.Threads;
 import org.quartz.JobExecutionException;
 import org.slf4j.Logger;
@@ -49,10 +53,12 @@ public final class ScheduleTaskRunner {
 
   private final ProgramRuntimeService runtimeService;
   private final Store store;
+  private final PreferencesStore preferencesStore;
 
-  public ScheduleTaskRunner(Store store, ProgramRuntimeService runtimeService) {
+  public ScheduleTaskRunner(Store store, ProgramRuntimeService runtimeService, PreferencesStore preferencesStore) {
     this.runtimeService = runtimeService;
     this.store = store;
+    this.preferencesStore = preferencesStore;
   }
 
   /**
@@ -64,18 +70,33 @@ public final class ScheduleTaskRunner {
    * @throws JobExecutionException If fails to execute the program.
    */
   public void run(Id.Program programId, ProgramType programType, Arguments arguments) throws JobExecutionException {
-    ProgramRuntimeService.RuntimeInfo existingRuntimeInfo = findRuntimeInfo(programId, programType);
-    if (existingRuntimeInfo != null) {
-      throw new JobExecutionException(UserMessages.getMessage(UserErrors.ALREADY_RUNNING), false);
-    }
-    Map<String, String> userArgs;
+    Map<String, String> userArgs = Maps.newHashMap();
     Program program;
     try {
       program =  store.loadProgram(programId, ProgramType.WORKFLOW);
       Preconditions.checkNotNull(program, "Program not found");
 
-      userArgs = store.getRunArguments(programId);
+      String scheduleName = arguments.getOption(ProgramOptionConstants.SCHEDULE_NAME);
+      ScheduleSpecification spec = store.getApplication(programId.getApplication()).getSchedules().get(scheduleName);
+      Preconditions.checkNotNull(spec, "Schedule not found");
 
+      userArgs.putAll(spec.getProperties());
+
+      Map<String, String> runtimeArgs = preferencesStore.getResolvedProperties(programId.getNamespaceId(),
+                                                        programId.getApplicationId(), programType.getCategoryName(),
+                                                        programId.getId());
+
+      userArgs.putAll(runtimeArgs);
+
+      boolean runMultipleProgramInstances =
+        Boolean.parseBoolean(userArgs.get(ProgramOptionConstants.CONCURRENT_RUNS_ENABLED));
+
+      if (!runMultipleProgramInstances) {
+        ProgramRuntimeService.RuntimeInfo existingRuntimeInfo = findRuntimeInfo(programId, programType);
+        if (existingRuntimeInfo != null) {
+          throw new JobExecutionException(UserMessages.getMessage(UserErrors.ALREADY_RUNNING), false);
+        }
+      }
     } catch (Throwable t) {
       throw new JobExecutionException(UserMessages.getMessage(UserErrors.PROGRAM_NOT_FOUND), t, false);
     }
@@ -116,7 +137,7 @@ public final class ScheduleTaskRunner {
                       TimeUnit.SECONDS.convert(System.currentTimeMillis(), TimeUnit.MILLISECONDS),
                       ProgramController.State.STOPPED);
         LOG.debug("Program {} {} {} completed successfully.",
-                  programId.getAccountId(), programId.getApplicationId(), programId.getId());
+                  programId.getNamespaceId(), programId.getApplicationId(), programId.getId());
         latch.countDown();
       }
 
@@ -124,9 +145,9 @@ public final class ScheduleTaskRunner {
       public void error(Throwable cause) {
         store.setStop(programId, runId,
                       TimeUnit.SECONDS.convert(System.currentTimeMillis(), TimeUnit.MILLISECONDS),
-                      ProgramController.State.STOPPED);
+                      ProgramController.State.ERROR);
         LOG.debug("Program {} {} {} execution failed.",
-                  programId.getAccountId(), programId.getApplicationId(), programId.getId(),
+                  programId.getNamespaceId(), programId.getApplicationId(), programId.getId(),
                   cause);
 
         latch.countDown();

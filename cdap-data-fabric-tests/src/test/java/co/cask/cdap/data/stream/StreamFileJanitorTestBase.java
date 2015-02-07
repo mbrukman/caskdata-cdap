@@ -1,5 +1,5 @@
 /*
- * Copyright © 2014 Cask Data, Inc.
+ * Copyright © 2014-2015 Cask Data, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not
  * use this file except in compliance with the License. You may obtain a copy of
@@ -19,13 +19,9 @@ package co.cask.cdap.data.stream;
 import co.cask.cdap.api.flow.flowlet.StreamEvent;
 import co.cask.cdap.common.conf.CConfiguration;
 import co.cask.cdap.common.conf.Constants;
-import co.cask.cdap.common.queue.QueueName;
 import co.cask.cdap.data.file.FileWriter;
-import co.cask.cdap.data2.transaction.stream.AbstractStreamFileAdmin;
 import co.cask.cdap.data2.transaction.stream.StreamAdmin;
 import co.cask.cdap.data2.transaction.stream.StreamConfig;
-import co.cask.cdap.data2.transaction.stream.StreamConsumerStateStoreFactory;
-import com.google.inject.Inject;
 import org.apache.twill.filesystem.Location;
 import org.apache.twill.filesystem.LocationFactory;
 import org.junit.Assert;
@@ -34,9 +30,7 @@ import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 
 import java.io.IOException;
-import java.util.Map;
 import java.util.Properties;
-import javax.annotation.Nullable;
 
 /**
  * Base test class for stream file janitor.
@@ -140,73 +134,5 @@ public abstract class StreamFileJanitorTestBase {
     }
 
     throw new IOException("Not a valid generation directory");
-  }
-
-  /**
-   * A stream admin for interact with files only (the product one operations on both file and HBase).
-   */
-  protected static final class TestStreamFileAdmin extends AbstractStreamFileAdmin {
-
-    @Inject
-    TestStreamFileAdmin(LocationFactory locationFactory, CConfiguration cConf, StreamCoordinator
-                        streamCoordinator, StreamConsumerStateStoreFactory stateStoreFactory) {
-      super(locationFactory, cConf, streamCoordinator, stateStoreFactory, new NoopStreamAdmin());
-    }
-  }
-
-  /**
-   * A {@link StreamAdmin} that does nothing.
-   */
-  protected static final class NoopStreamAdmin implements StreamAdmin {
-
-    @Override
-    public void dropAll() throws Exception {
-    }
-
-    @Override
-    public void configureInstances(QueueName streamName, long groupId, int instances) throws Exception {
-    }
-
-    @Override
-    public void configureGroups(QueueName streamName, Map<Long, Integer> groupInfo) throws Exception {
-    }
-
-    @Override
-    public void upgrade() throws Exception {
-    }
-
-    @Override
-    public StreamConfig getConfig(String streamName) throws IOException {
-      throw new IllegalStateException("Stream " + streamName + " not exists.");
-    }
-
-    @Override
-    public void updateConfig(StreamConfig config) throws IOException {
-    }
-
-    @Override
-    public boolean exists(String name) throws Exception {
-      return false;
-    }
-
-    @Override
-    public void create(String name) throws Exception {
-    }
-
-    @Override
-    public void create(String name, @Nullable Properties props) throws Exception {
-    }
-
-    @Override
-    public void truncate(String name) throws Exception {
-    }
-
-    @Override
-    public void drop(String name) throws Exception {
-    }
-
-    @Override
-    public void upgrade(String name, Properties properties) throws Exception {
-    }
   }
 }

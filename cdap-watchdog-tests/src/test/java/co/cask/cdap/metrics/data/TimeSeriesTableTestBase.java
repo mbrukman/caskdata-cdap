@@ -15,7 +15,6 @@
  */
 package co.cask.cdap.metrics.data;
 
-import co.cask.cdap.data2.OperationException;
 import co.cask.cdap.metrics.transport.MetricType;
 import co.cask.cdap.metrics.transport.MetricsRecord;
 import co.cask.cdap.metrics.transport.TagMetric;
@@ -28,6 +27,7 @@ import org.junit.Test;
 
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Test base for {@link TimeSeriesTable}.
@@ -37,8 +37,8 @@ public abstract class TimeSeriesTableTestBase {
   protected abstract MetricsTableFactory getTableFactory();
 
   @Test
-  public void testAggregate() throws OperationException {
-    TimeSeriesTable timeSeriesTable = getTableFactory().createTimeSeries("test", 1);
+  public void testAggregate() throws Exception {
+    TimeSeriesTable timeSeriesTable = getTableFactory().createTimeSeries(1);
 
     // 2012-10-01T12:00:00
     final long time = 1317470400;
@@ -118,9 +118,110 @@ public abstract class TimeSeriesTableTestBase {
     });
   }
 
+
+
+  @Test
+  public void testTimeSeriesMinuteResolutionAggregation() throws Exception {
+    TimeSeriesTable timeSeriesTable = getTableFactory().createTimeSeries(60);
+
+    // 2012-10-01T12:00:00
+    final long time = 1317470400;
+
+    // Insert metrics for flow
+    String context = "app.f.flow2.flowlet";
+    String metric = "input";
+    insertMetrics(timeSeriesTable, context, "runId", metric, ImmutableList.of("test"), time, 0, 7200, 100);
+
+    MetricsScanQuery query = new MetricsScanQueryBuilder().setContext("app.f.flow2.flowlet")
+      .setMetric("input")
+      .build(time, time + 7200);
+
+    assertAggregate(query, timeSeriesTable.scan(query), 120, 2, new Function<Long, Integer>() {
+      @Override
+      public Integer apply(Long ts) {
+        return (int) (1770 + (ts - time) * 60);
+      }
+    });
+  }
+
+  @Test
+  public void testIncrements() throws Exception {
+    TimeSeriesTable timeSeriesTable = getTableFactory().createTimeSeries(1);
+
+    // 2012-10-01T12:00:00
+    final long time = 1317470400;
+
+    // Insert metrics for flow
+    String context = "app.f.flow.flowlet";
+    String metric = "input";
+
+    List<MetricsRecord> records = Lists.newArrayList();
+    records.add(new MetricsRecord(context, "runId", metric, ImmutableList.<TagMetric>of(),
+                                  time, 1, MetricType.COUNTER));
+    timeSeriesTable.save(records);
+    records.clear();
+    TimeUnit.SECONDS.sleep(1);
+    records.add(new MetricsRecord(context, "runId", metric, ImmutableList.<TagMetric>of(),
+                                  time, 2, MetricType.COUNTER));
+    timeSeriesTable.save(records);
+    records.clear();
+    records.add(new MetricsRecord(context, "runId", metric, ImmutableList.<TagMetric>of(),
+                                  time, 3, MetricType.COUNTER));
+    timeSeriesTable.save(records);
+
+    MetricsScanQuery query = new MetricsScanQueryBuilder().setContext("app.f.flow.flowlet")
+      .setMetric("input")
+      .build(time, time + 1);
+
+    assertAggregate(query, timeSeriesTable.scan(query), 1, 1, new Function<Long, Integer>() {
+      @Override
+      public Integer apply(Long ts) {
+        return 6;
+      }
+    });
+
+  }
+
+  @Test
+  public void testTimeSeriesMinuteResolution() throws Exception {
+    TimeSeriesTable timeSeriesTable = getTableFactory().createTimeSeries(60);
+
+    // 2012-10-01T12:00:00
+    final long time = 1317470400;
+
+    // Insert metrics for flow
+    String context = "app.f.flow3.flowlet";
+    String metric = "input";
+
+    insertMetricsEachMinute(timeSeriesTable, context, "runId", metric, ImmutableList.of("test"), time, 0, 1440,
+                            MetricType.COUNTER);
+    insertMetricsEachMinute(timeSeriesTable, context, "runId", metric, ImmutableList.of("test"), time, 0, 1440,
+                            MetricType.COUNTER);
+
+    MetricsScanQuery query = new MetricsScanQueryBuilder().setContext("app.f.flow3.flowlet")
+      .setMetric("input")
+      .build(time, time + 86400);
+
+    assertAggregate(query, timeSeriesTable.scan(query), 1440, 24, new Function<Long, Integer>() {
+      @Override
+      public Integer apply(Long ts) {
+        return (int) ((ts - time) * 2);
+      }
+    });
+
+    insertMetricsEachMinute(timeSeriesTable, context, "runId", metric, ImmutableList.of("test"), time, 0, 1440,
+                            MetricType.GAUGE);
+    assertAggregate(query, timeSeriesTable.scan(query), 1440, 24, new Function<Long, Integer>() {
+      @Override
+      public Integer apply(Long ts) {
+        return (int) ((ts - time));
+      }
+    });
+  }
+
   private void insertMetrics(TimeSeriesTable timeSeriesTable,
                              String context, String runId, String metric, Iterable<String> tags,
-                             long startTime, int offset, int count, int batchSize) throws OperationException {
+                             long startTime, int offset, int count, int batchSize) throws Exception {
 
     List<TagMetric> tagMetrics = Lists.newLinkedList();
     List<MetricsRecord> records = Lists.newArrayListWithCapacity(batchSize);
@@ -137,9 +238,26 @@ public abstract class TimeSeriesTableTestBase {
     }
   }
 
+  private void insertMetricsEachMinute(TimeSeriesTable timeSeriesTable,
+                                       String context, String runId, String metric, Iterable<String> tags,
+                                       long startTime, int offset, int count, MetricType type)
+    throws Exception {
+
+    List<TagMetric> tagMetrics = Lists.newLinkedList();
+    List<MetricsRecord> records = Lists.newArrayListWithCapacity(count);
+    for (int i = offset; i < offset + count; i++) {
+      for (String tag : tags) {
+        tagMetrics.add(new TagMetric(tag, i * 2));
+      }
+      records.add(new MetricsRecord(context, runId, metric, tagMetrics, startTime + (i * 60), i * 60, type));
+    }
+    timeSeriesTable.save(records);
+    records.clear();
+  }
+
   @Test
-  public void testClear() throws OperationException {
-    TimeSeriesTable timeSeriesTable = getTableFactory().createTimeSeries("testDeleteAll", 1);
+  public void testClear() throws Exception {
+    TimeSeriesTable timeSeriesTable = getTableFactory().createTimeSeries(1);
     // 2012-10-01T12:00:00
     final long time = 1317470400;
 
@@ -169,8 +287,8 @@ public abstract class TimeSeriesTableTestBase {
   }
 
   @Test
-  public void testIntOverflow() throws OperationException {
-    TimeSeriesTable timeSeriesTable = getTableFactory().createTimeSeries("intOverflow", 1);
+  public void testIntOverflow() throws Exception {
+    TimeSeriesTable timeSeriesTable = getTableFactory().createTimeSeries(1);
     // 2012-10-01T12:00:00
     final long time = 1317470400;
 
@@ -191,8 +309,8 @@ public abstract class TimeSeriesTableTestBase {
 
 
   @Test
-  public void testGauge() throws OperationException {
-    TimeSeriesTable timeSeriesTable = getTableFactory().createTimeSeries("testGauge", 1);
+  public void testGauge() throws Exception {
+    TimeSeriesTable timeSeriesTable = getTableFactory().createTimeSeries(1);
     // 2012-10-01T12:00:00
     final long time = 1317470400;
 
@@ -217,9 +335,9 @@ public abstract class TimeSeriesTableTestBase {
   }
 
   @Test
-  public void testDelete() throws OperationException {
+  public void testDelete() throws Exception {
 
-    TimeSeriesTable timeSeriesTable = getTableFactory().createTimeSeries("testDelete", 1);
+    TimeSeriesTable timeSeriesTable = getTableFactory().createTimeSeries(1);
 
     // 2012-10-01T12:00:00
     final long time = 1317470400;
@@ -279,9 +397,9 @@ public abstract class TimeSeriesTableTestBase {
   }
 
   @Test
-  public void testDeleteContextAndMetric() throws OperationException {
+  public void testDeleteContextAndMetric() throws Exception {
 
-    TimeSeriesTable timeSeriesTable = getTableFactory().createTimeSeries("testContextAndMetricDelete", 1);
+    TimeSeriesTable timeSeriesTable = getTableFactory().createTimeSeries(1);
 
     // 2012-10-01T12:00:00
     final long time = 1317470400;
@@ -304,8 +422,8 @@ public abstract class TimeSeriesTableTestBase {
                                         MetricType.COUNTER));
           records.add(new MetricsRecord(context, runId, "store.ops", tagMetrics, time + k, 15,
                                         MetricType.COUNTER));
-          timeSeriesTable.save(records);
         }
+        timeSeriesTable.save(records);
       }
     }
 
@@ -366,9 +484,9 @@ public abstract class TimeSeriesTableTestBase {
   }
 
   @Test
-  public void testRangeDelete() throws OperationException {
+  public void testRangeDelete() throws Exception {
 
-    TimeSeriesTable timeSeriesTable = getTableFactory().createTimeSeries("testRangeDelete", 1);
+    TimeSeriesTable timeSeriesTable = getTableFactory().createTimeSeries(1);
 
     // 2012-10-01T12:00:00
     final long time = 1317470400;
@@ -391,8 +509,8 @@ public abstract class TimeSeriesTableTestBase {
                                         MetricType.COUNTER));
           records.add(new MetricsRecord(context, runId, "store.ops", tagMetrics, time + k, 15,
                                         MetricType.COUNTER));
-          timeSeriesTable.save(records);
         }
+        timeSeriesTable.save(records);
       }
     }
 
@@ -478,20 +596,20 @@ public abstract class TimeSeriesTableTestBase {
   }
 
   @Test
-  public void testScanAllTags() throws OperationException {
+  public void testScanAllTags() throws Exception {
 
-    TimeSeriesTable timeSeriesTable = getTableFactory().createTimeSeries("testScanAllTags", 1);
+    TimeSeriesTable timeSeriesTable = getTableFactory().createTimeSeries(1);
 
     try {
       timeSeriesTable.save(ImmutableList.of(
-        new MetricsRecord("app.f.flow.flowlet", "0", "store.bytes", ImmutableList.of(
+        new MetricsRecord("app.f.flow4.flowlet", "0", "store.bytes", ImmutableList.of(
           new TagMetric("tag1", 1), new TagMetric("tag2", 2), new TagMetric("tag3", 3)), 1234567890, 6,
                           MetricType.COUNTER)
       ));
 
       Map<String, Long> tagValues = Maps.newHashMap();
       MetricsScanQuery query = new MetricsScanQueryBuilder()
-        .setContext("app.f.flow.flowlet")
+        .setContext("app.f.flow4.flowlet")
         .setMetric("store.bytes")
         .setRunId("0")
         .build(1234567890, 1234567891);
@@ -539,13 +657,12 @@ public abstract class TimeSeriesTableTestBase {
       } else {
         Assert.assertTrue(result.getTag().startsWith(query.getTagPrefix()));
       }
-
       timeValues.add(result);
     }
 
     int count = 0;
     for (TimeValue tv : new TimeValueAggregator(timeValues)) {
-      Assert.assertEquals(computeExpected.apply(tv.getTime()).intValue(), tv.getValue());
+      Assert.assertEquals(computeExpected.apply(tv.getTime()).longValue(), tv.getValue());
       count++;
     }
     Assert.assertEquals(expectedCount, count);

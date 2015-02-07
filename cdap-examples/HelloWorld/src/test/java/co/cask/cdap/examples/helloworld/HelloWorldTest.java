@@ -45,6 +45,7 @@ public class HelloWorldTest extends TestBase {
 
     // Start WhoFlow
     FlowManager flowManager = appManager.startFlow("WhoFlow");
+    Assert.assertTrue(flowManager.isRunning());
 
     // Send stream events to the "who" Stream
     StreamWriter streamWriter = appManager.getStreamWriter("who");
@@ -60,13 +61,14 @@ public class HelloWorldTest extends TestBase {
       metrics.waitForProcessed(5, 5, TimeUnit.SECONDS);
     } finally {
       flowManager.stop();
+      Assert.assertFalse(flowManager.isRunning());
     }
 
     // Start Greeting service and use it
     ServiceManager serviceManager = appManager.startService(HelloWorld.Greeting.SERVICE_NAME);
 
     // Wait service startup
-    serviceStatusCheck(serviceManager, true);
+    serviceManager.waitForStatus(true);
 
     URL url = new URL(serviceManager.getServiceURL(15, TimeUnit.SECONDS), "greet");
     HttpURLConnection connection = (HttpURLConnection) url.openConnection();
@@ -78,18 +80,5 @@ public class HelloWorldTest extends TestBase {
       connection.disconnect();
     }
     Assert.assertEquals("Hello 5!", response);
-
-    appManager.stopAll();
-  }
-
-  private void serviceStatusCheck(ServiceManager serviceManger, boolean running) throws InterruptedException {
-    int trial = 0;
-    while (trial++ < 5) {
-      if (serviceManger.isRunning() == running) {
-        return;
-      }
-      TimeUnit.SECONDS.sleep(1);
-    }
-    throw new IllegalStateException("Service state not executed. Expected " + running);
   }
 }

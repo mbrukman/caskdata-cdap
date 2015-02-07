@@ -1,5 +1,5 @@
 /*
- * Copyright © 2014 Cask Data, Inc.
+ * Copyright © 2014-2015 Cask Data, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not
  * use this file except in compliance with the License. You may obtain a copy of
@@ -15,16 +15,24 @@
  */
 package co.cask.cdap.internal.app.runtime.workflow;
 
+import co.cask.cdap.api.mapreduce.MapReduceSpecification;
+import co.cask.cdap.api.schedule.SchedulableProgramType;
+import co.cask.cdap.api.spark.SparkSpecification;
+import co.cask.cdap.api.workflow.ScheduleProgramInfo;
 import co.cask.cdap.api.workflow.WorkflowAction;
 import co.cask.cdap.api.workflow.WorkflowActionSpecification;
 import co.cask.cdap.api.workflow.WorkflowSpecification;
+import co.cask.cdap.app.ApplicationSpecification;
 import co.cask.cdap.app.program.Program;
 import co.cask.cdap.app.runtime.Arguments;
 import co.cask.cdap.app.runtime.ProgramOptions;
 import co.cask.cdap.app.runtime.workflow.WorkflowStatus;
+import co.cask.cdap.common.lang.ClassLoaders;
 import co.cask.cdap.common.lang.InstantiatorFactory;
 import co.cask.cdap.internal.app.runtime.ProgramOptionConstants;
-import co.cask.cdap.internal.app.runtime.batch.MapReduceProgramRunner;
+import co.cask.cdap.internal.app.runtime.ProgramRunnerFactory;
+import co.cask.cdap.internal.workflow.DefaultWorkflowActionSpecification;
+import co.cask.cdap.internal.workflow.ProgramWorkflowAction;
 import co.cask.http.NettyHttpService;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Supplier;
@@ -55,25 +63,25 @@ final class WorkflowDriver extends AbstractExecutionThreadService {
   private final Map<String, String> runtimeArgs;
   private final WorkflowSpecification workflowSpec;
   private final long logicalStartTime;
-  private final MapReduceRunnerFactory runnerFactory;
+  private final ProgramWorkflowRunnerFactory workflowProgramRunnerFactory;
   private NettyHttpService httpService;
   private volatile boolean running;
   private volatile WorkflowStatus workflowStatus;
 
   WorkflowDriver(Program program, RunId runId, ProgramOptions options, InetAddress hostname,
-                 WorkflowSpecification workflowSpec, MapReduceProgramRunner programRunner) {
+                 WorkflowSpecification workflowSpec, ProgramRunnerFactory programRunnerFactory) {
     this.program = program;
     this.runId = runId;
     this.hostname = hostname;
     this.runtimeArgs = createRuntimeArgs(options.getUserArguments());
     this.workflowSpec = workflowSpec;
     this.logicalStartTime = options.getArguments().hasOption(ProgramOptionConstants.LOGICAL_START_TIME)
-                                ? Long.parseLong(options.getArguments()
-                                                         .getOption(ProgramOptionConstants.LOGICAL_START_TIME))
-                                : System.currentTimeMillis();
-
-    this.runnerFactory = new WorkflowMapReduceRunnerFactory(workflowSpec, programRunner, program,
-                                                            runId, options.getUserArguments(), logicalStartTime);
+      ? Long.parseLong(options.getArguments()
+                         .getOption(ProgramOptionConstants.LOGICAL_START_TIME))
+      : System.currentTimeMillis();
+    this.workflowProgramRunnerFactory = new ProgramWorkflowRunnerFactory(workflowSpec, programRunnerFactory, program, 
+                                                                         runId, options.getUserArguments(), 
+                                                                         logicalStartTime);
   }
 
   @Override
@@ -104,15 +112,45 @@ final class WorkflowDriver extends AbstractExecutionThreadService {
     ClassLoader classLoader = program.getClassLoader();
 
     // Executes actions step by step. Individually invoke the init()->run()->destroy() sequence.
-    Iterator<WorkflowActionSpecification> iterator = workflowSpec.getActions().iterator();
+
+    ApplicationSpecification appSpec = program.getApplicationSpecification();
+
+    Iterator<ScheduleProgramInfo> iterator = workflowSpec.getActions().iterator();
     int step = 0;
     while (running && iterator.hasNext()) {
-      WorkflowActionSpecification actionSpec = iterator.next();
+      WorkflowActionSpecification actionSpec;
+      ScheduleProgramInfo actionInfo = iterator.next();
+      switch (actionInfo.getProgramType()) {
+        case MAPREDUCE:
+          MapReduceSpecification mapReduceSpec = appSpec.getMapReduce().get(actionInfo.getProgramName());
+          actionSpec = new DefaultWorkflowActionSpecification(new ProgramWorkflowAction(mapReduceSpec.getName(),
+                                                                                        mapReduceSpec.getName(),
+                                                 SchedulableProgramType.MAPREDUCE));
+          break;
+        case SPARK:
+          SparkSpecification sparkSpec = appSpec.getSpark().get(actionInfo.getProgramName());
+          actionSpec = new DefaultWorkflowActionSpecification(new ProgramWorkflowAction(sparkSpec.getName(),
+                                                                                        sparkSpec.getName(),
+                                                 SchedulableProgramType.SPARK));
+          break;
+        case CUSTOM_ACTION:
+          actionSpec = workflowSpec.getCustomActionMap().get(actionInfo.getProgramName());
+          break;
+        default:
+          LOG.error("Unknown Program Type '{}', Program '{}' in the Workflow.", actionInfo.getProgramType(),
+                    actionInfo.getProgramName());
+          throw new IllegalStateException("Workflow stopped without executing all tasks");
+      }
       workflowStatus = new WorkflowStatus(state(), actionSpec, step++);
 
       WorkflowAction action = initialize(actionSpec, classLoader, instantiator);
       try {
-        action.run();
+        ClassLoader oldClassLoader = ClassLoaders.setContextClassLoader(action.getClass().getClassLoader());
+        try {
+          action.run();
+        } finally {
+          ClassLoaders.setContextClassLoader(oldClassLoader);
+        }
       } catch (Throwable t) {
         LOG.warn("Exception on WorkflowAction.run(), aborting Workflow. {}", actionSpec);
         // this will always rethrow
@@ -159,13 +197,18 @@ final class WorkflowDriver extends AbstractExecutionThreadService {
     Preconditions.checkArgument(WorkflowAction.class.isAssignableFrom(clz), "%s is not a WorkflowAction.", clz);
     WorkflowAction action = instantiator.get(TypeToken.of((Class<? extends WorkflowAction>) clz)).create();
 
+    ClassLoader oldClassLoader = ClassLoaders.setContextClassLoader(action.getClass().getClassLoader());
     try {
       action.initialize(new BasicWorkflowContext(workflowSpec, actionSpec,
-                                                 logicalStartTime, runnerFactory, runtimeArgs));
+                                                 logicalStartTime, 
+                                                 workflowProgramRunnerFactory.getProgramWorkflowRunner(actionSpec), 
+                                                 runtimeArgs));
     } catch (Throwable t) {
       LOG.warn("Exception on WorkflowAction.initialize(), abort Workflow. {}", actionSpec, t);
       // this will always rethrow
       Throwables.propagateIfPossible(t, Exception.class);
+    } finally {
+      ClassLoaders.setContextClassLoader(oldClassLoader);
     }
 
     return action;
@@ -175,11 +218,14 @@ final class WorkflowDriver extends AbstractExecutionThreadService {
    * Calls the destroy method on the given WorkflowAction.
    */
   private void destroy(WorkflowActionSpecification actionSpec, WorkflowAction action) {
+    ClassLoader oldClassLoader = ClassLoaders.setContextClassLoader(action.getClass().getClassLoader());
     try {
       action.destroy();
     } catch (Throwable t) {
       LOG.warn("Exception on WorkflowAction.destroy(): {}", actionSpec, t);
       // Just log, but not propagate
+    } finally {
+      ClassLoaders.setContextClassLoader(oldClassLoader);
     }
   }
 

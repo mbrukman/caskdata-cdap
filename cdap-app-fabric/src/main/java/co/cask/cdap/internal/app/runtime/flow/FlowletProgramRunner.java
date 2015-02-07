@@ -1,5 +1,5 @@
 /*
- * Copyright © 2014 Cask Data, Inc.
+ * Copyright © 2014-2015 Cask Data, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not
  * use this file except in compliance with the License. You may obtain a copy of
@@ -17,11 +17,12 @@
 package co.cask.cdap.internal.app.runtime.flow;
 
 import co.cask.cdap.api.annotation.Batch;
-import co.cask.cdap.api.annotation.DisableTransaction;
 import co.cask.cdap.api.annotation.HashPartition;
 import co.cask.cdap.api.annotation.ProcessInput;
 import co.cask.cdap.api.annotation.RoundRobin;
 import co.cask.cdap.api.annotation.Tick;
+import co.cask.cdap.api.data.schema.Schema;
+import co.cask.cdap.api.data.schema.UnsupportedTypeException;
 import co.cask.cdap.api.flow.FlowSpecification;
 import co.cask.cdap.api.flow.FlowletConnection;
 import co.cask.cdap.api.flow.FlowletDefinition;
@@ -44,14 +45,16 @@ import co.cask.cdap.app.runtime.ProgramOptions;
 import co.cask.cdap.app.runtime.ProgramRunner;
 import co.cask.cdap.common.async.ExecutorUtils;
 import co.cask.cdap.common.conf.CConfiguration;
+import co.cask.cdap.common.conf.Constants;
 import co.cask.cdap.common.io.BinaryDecoder;
 import co.cask.cdap.common.lang.InstantiatorFactory;
 import co.cask.cdap.common.lang.PropertyFieldSetter;
 import co.cask.cdap.common.logging.common.LogWriter;
 import co.cask.cdap.common.logging.logback.CAppender;
 import co.cask.cdap.common.metrics.MetricsCollectionService;
+import co.cask.cdap.common.metrics.MetricsCollector;
 import co.cask.cdap.common.queue.QueueName;
-import co.cask.cdap.data.stream.StreamCoordinator;
+import co.cask.cdap.data.stream.StreamCoordinatorClient;
 import co.cask.cdap.data.stream.StreamPropertyListener;
 import co.cask.cdap.data2.dataset2.DatasetFramework;
 import co.cask.cdap.data2.queue.ConsumerConfig;
@@ -73,9 +76,7 @@ import co.cask.cdap.internal.app.runtime.MetricsFieldSetter;
 import co.cask.cdap.internal.app.runtime.ProgramOptionConstants;
 import co.cask.cdap.internal.io.DatumWriterFactory;
 import co.cask.cdap.internal.io.ReflectionDatumReader;
-import co.cask.cdap.internal.io.Schema;
 import co.cask.cdap.internal.io.SchemaGenerator;
-import co.cask.cdap.internal.io.UnsupportedTypeException;
 import co.cask.cdap.internal.lang.Reflections;
 import co.cask.cdap.internal.specification.FlowletMethod;
 import co.cask.cdap.proto.Id;
@@ -129,7 +130,7 @@ public final class FlowletProgramRunner implements ProgramRunner {
   private final SchemaGenerator schemaGenerator;
   private final DatumWriterFactory datumWriterFactory;
   private final DataFabricFacadeFactory dataFabricFacadeFactory;
-  private final StreamCoordinator streamCoordinator;
+  private final StreamCoordinatorClient streamCoordinatorClient;
   private final QueueReaderFactory queueReaderFactory;
   private final MetricsCollectionService metricsCollectionService;
   private final DiscoveryServiceClient discoveryServiceClient;
@@ -139,7 +140,8 @@ public final class FlowletProgramRunner implements ProgramRunner {
   public FlowletProgramRunner(CConfiguration cConf,
                               SchemaGenerator schemaGenerator,
                               DatumWriterFactory datumWriterFactory,
-                              DataFabricFacadeFactory dataFabricFacadeFactory, StreamCoordinator streamCoordinator,
+                              DataFabricFacadeFactory dataFabricFacadeFactory,
+                              StreamCoordinatorClient streamCoordinatorClient,
                               QueueReaderFactory queueReaderFactory,
                               MetricsCollectionService metricsCollectionService,
                               DiscoveryServiceClient discoveryServiceClient,
@@ -148,7 +150,7 @@ public final class FlowletProgramRunner implements ProgramRunner {
     this.schemaGenerator = schemaGenerator;
     this.datumWriterFactory = datumWriterFactory;
     this.dataFabricFacadeFactory = dataFabricFacadeFactory;
-    this.streamCoordinator = streamCoordinator;
+    this.streamCoordinatorClient = streamCoordinatorClient;
     this.queueReaderFactory = queueReaderFactory;
     this.metricsCollectionService = metricsCollectionService;
     this.discoveryServiceClient = discoveryServiceClient;
@@ -179,7 +181,7 @@ public final class FlowletProgramRunner implements ProgramRunner {
       Preconditions.checkNotNull(runIdOption, "Missing runId");
       RunId runId = RunIds.fromString(runIdOption);
 
-      ApplicationSpecification appSpec = program.getSpecification();
+      ApplicationSpecification appSpec = program.getApplicationSpecification();
       Preconditions.checkNotNull(appSpec, "Missing application specification.");
 
       ProgramType processorType = program.getType();
@@ -192,12 +194,6 @@ public final class FlowletProgramRunner implements ProgramRunner {
       FlowSpecification flowSpec = appSpec.getFlows().get(processorName);
       FlowletDefinition flowletDef = flowSpec.getFlowlets().get(flowletName);
       Preconditions.checkNotNull(flowletDef, "Definition missing for flowlet \"%s\"", flowletName);
-
-      boolean disableTransaction = program.getMainClass().isAnnotationPresent(DisableTransaction.class);
-      if (disableTransaction) {
-        LOG.info("Transaction is disable for flowlet {}.{}.{}",
-                 program.getApplicationId(), program.getId().getId(), flowletName);
-      }
 
       Class<?> clz = Class.forName(flowletDef.getFlowletSpec().getClassName(), true,
                                    program.getClassLoader());
@@ -214,13 +210,12 @@ public final class FlowletProgramRunner implements ProgramRunner {
                                                dsFramework, cConf);
 
       // Creates tx related objects
-      DataFabricFacade dataFabricFacade = disableTransaction ?
-        dataFabricFacadeFactory.createNoTransaction(program, flowletContext.getDatasetInstantiator())
-        : dataFabricFacadeFactory.create(program, flowletContext.getDatasetInstantiator());
+      DataFabricFacade dataFabricFacade =
+        dataFabricFacadeFactory.create(program, flowletContext.getDatasetInstantiator());
 
       // Creates QueueSpecification
       Table<Node, String, Set<QueueSpecification>> queueSpecs =
-        new SimpleQueueSpecificationGenerator(Id.Application.from(program.getAccountId(), program.getApplicationId()))
+        new SimpleQueueSpecificationGenerator(Id.Application.from(program.getNamespaceId(), program.getApplicationId()))
           .create(flowSpec);
 
       Flowlet flowlet = new InstantiatorFactory(false).get(TypeToken.of(flowletClass)).create();
@@ -257,10 +252,6 @@ public final class FlowletProgramRunner implements ProgramRunner {
       FlowletRuntimeService driver = new FlowletRuntimeService(flowlet, flowletContext, processSpecs,
                                                              createCallback(flowlet, flowletDef.getFlowletSpec()),
                                                              dataFabricFacade, serviceHook);
-
-      if (disableTransaction) {
-        LOG.info("Transaction disabled for flowlet {}", flowletContext);
-      }
 
       FlowletProgramController controller = new FlowletProgramController(program.getName(), flowletName,
                                                                          flowletContext, driver, consumerSuppliers);
@@ -469,12 +460,12 @@ public final class FlowletProgramRunner implements ProgramRunner {
             if (queueSpec.getQueueName().getSimpleName().equals(outputName)
                 && queueSpec.getOutputSchema().equals(schema)) {
 
-              final String queueMetricsName = "process.events.out";
-              final String queueMetricsTag = queueSpec.getQueueName().getSimpleName();
+              final MetricsCollector metrics = flowletContext.getProgramMetrics().childCollector(
+                Constants.Metrics.Tag.FLOWLET_QUEUE, queueSpec.getQueueName().getSimpleName());
               QueueMetrics queueMetrics = new QueueMetrics() {
                 @Override
                 public void emitEnqueue(int count) {
-                  flowletContext.getProgramMetrics().increment(queueMetricsName, count, queueMetricsTag);
+                  metrics.increment("process.events.out", count);
                 }
 
                 @Override
@@ -687,12 +678,12 @@ public final class FlowletProgramRunner implements ProgramRunner {
                                                  final QueueName queueName,
                                                  final Function<S, T> inputDecoder) {
     final String eventsMetricsName = "process.events.in";
-    final String eventsMetricsTag = queueName.getSimpleName();
+    final String queue = queueName.getSimpleName();
     return new Function<S, T>() {
       @Override
       public T apply(S source) {
-        context.getProgramMetrics().increment(eventsMetricsName, 1, eventsMetricsTag);
-        context.getProgramMetrics().increment("process.tuples.read", 1, eventsMetricsTag);
+        context.getQueueMetrics(queue).increment(eventsMetricsName, 1);
+        context.getQueueMetrics(queue).increment("process.tuples.read", 1);
         return inputDecoder.apply(source);
       }
     };
@@ -702,7 +693,7 @@ public final class FlowletProgramRunner implements ProgramRunner {
   private SchemaCache createSchemaCache(Program program) throws Exception {
     ImmutableSet.Builder<Schema> schemas = ImmutableSet.builder();
 
-    for (FlowSpecification flowSpec : program.getSpecification().getFlows().values()) {
+    for (FlowSpecification flowSpec : program.getApplicationSpecification().getFlows().values()) {
       for (FlowletDefinition flowletDef : flowSpec.getFlowlets().values()) {
         schemas.addAll(Iterables.concat(flowletDef.getInputs().values()));
         schemas.addAll(Iterables.concat(flowletDef.getOutputs().values()));
@@ -746,7 +737,7 @@ public final class FlowletProgramRunner implements ProgramRunner {
         }
       };
     }
-    return new FlowletServiceHook(flowletName, streamCoordinator, streams, controller);
+    return new FlowletServiceHook(flowletName, streamCoordinatorClient, streams, controller);
   }
 
   private static interface ProcessMethodFactory {
@@ -765,13 +756,13 @@ public final class FlowletProgramRunner implements ProgramRunner {
 
   /**
    * This service is for start/stop listening to changes in stream property, through the help of
-   * {@link StreamCoordinator}, so that it can react to changes and properly reconfigure stream consumers used by
+   * {@link StreamCoordinatorClient}, so that it can react to changes and properly reconfigure stream consumers used by
    * the flowlet. This hook is provided to {@link FlowletRuntimeService} and being start/stop
    * when the driver start/stop.
    */
   private static final class FlowletServiceHook extends AbstractService {
 
-    private final StreamCoordinator streamCoordinator;
+    private final StreamCoordinatorClient streamCoordinatorClient;
     private final List<String> streams;
     private final AtomicReference<FlowletProgramController> controller;
     private final Executor executor;
@@ -779,9 +770,9 @@ public final class FlowletProgramRunner implements ProgramRunner {
     private final StreamPropertyListener propertyListener;
     private Cancellable cancellable;
 
-    private FlowletServiceHook(final String flowletName, StreamCoordinator streamCoordinator, List<String> streams,
-                               AtomicReference<FlowletProgramController> controller) {
-      this.streamCoordinator = streamCoordinator;
+    private FlowletServiceHook(final String flowletName, StreamCoordinatorClient streamCoordinatorClient,
+                               List<String> streams, AtomicReference<FlowletProgramController> controller) {
+      this.streamCoordinatorClient = streamCoordinatorClient;
       this.streams = streams;
       this.controller = controller;
       this.executor = ExecutorUtils.newThreadExecutor(Threads.createDaemonThreadFactory("flowlet-stream-update-%d"));
@@ -825,7 +816,7 @@ public final class FlowletProgramRunner implements ProgramRunner {
       };
 
       for (String stream : streams) {
-        cancellables.add(streamCoordinator.addListener(stream, propertyListener));
+        cancellables.add(streamCoordinatorClient.addListener(stream, propertyListener));
       }
       notifyStarted();
     }

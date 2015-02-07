@@ -16,14 +16,16 @@
 
 package co.cask.cdap.cli.command;
 
+import co.cask.cdap.api.data.format.FormatSpecification;
 import co.cask.cdap.cli.ArgumentName;
+import co.cask.cdap.cli.CLIConfig;
 import co.cask.cdap.cli.ElementType;
+import co.cask.cdap.cli.util.AbstractAuthCommand;
 import co.cask.cdap.cli.util.AsciiTable;
 import co.cask.cdap.cli.util.RowMaker;
 import co.cask.cdap.client.StreamClient;
 import co.cask.cdap.proto.StreamProperties;
 import co.cask.common.cli.Arguments;
-import co.cask.common.cli.Command;
 import com.google.common.collect.Lists;
 import com.google.inject.Inject;
 
@@ -32,27 +34,29 @@ import java.io.PrintStream;
 /**
  * Shows detailed information about a stream.
  */
-public class DescribeStreamCommand implements Command {
+public class DescribeStreamCommand extends AbstractAuthCommand {
 
   private final StreamClient streamClient;
 
   @Inject
-  public DescribeStreamCommand(StreamClient streamClient) {
+  public DescribeStreamCommand(StreamClient streamClient, CLIConfig cliConfig) {
+    super(cliConfig);
     this.streamClient = streamClient;
   }
 
   @Override
-  public void execute(Arguments arguments, PrintStream output) throws Exception {
+  public void perform(Arguments arguments, PrintStream output) throws Exception {
     String streamId = arguments.get(ArgumentName.STREAM.toString());
     StreamProperties config = streamClient.getConfig(streamId);
 
     new AsciiTable<StreamProperties>(
-      new String[] { "name", "ttl"},
+      new String[] { "name", "ttl", "format", "schema" },
       Lists.newArrayList(config),
       new RowMaker<StreamProperties>() {
         @Override
         public Object[] makeRow(StreamProperties object) {
-          return new Object[] { object.getName(), object.getTTL() };
+          FormatSpecification format = object.getFormat();
+          return new Object[] { object.getName(), object.getTTL(), format.getName(), format.getSchema().toString() };
         }
       }
     ).print(output);

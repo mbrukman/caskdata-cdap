@@ -16,6 +16,7 @@
 
 package co.cask.cdap.examples.fileset;
 
+import co.cask.cdap.api.Resources;
 import co.cask.cdap.api.mapreduce.AbstractMapReduce;
 import co.cask.cdap.api.mapreduce.MapReduceContext;
 import org.apache.hadoop.io.IntWritable;
@@ -41,6 +42,8 @@ public class WordCount extends AbstractMapReduce {
   public void configure() {
     setInputDataset("lines");
     setOutputDataset("counts");
+    setMapperResources(new Resources(1024));
+    setReducerResources(new Resources(1024));
   }
 
   @Override
@@ -49,8 +52,6 @@ public class WordCount extends AbstractMapReduce {
     job.setMapperClass(Tokenizer.class);
     job.setReducerClass(Counter.class);
     job.setNumReduceTasks(1);
-    job.setMapOutputKeyClass(Text.class);
-    job.setMapOutputValueClass(IntWritable.class);
   }
 
   /**

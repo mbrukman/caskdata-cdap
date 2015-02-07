@@ -59,6 +59,7 @@ public abstract class AbstractMapReduceContextBuilder {
    */
   public BasicMapReduceContext build(MapReduceMetrics.TaskType type,
                                      String runId,
+                                     String taskId,
                                      long logicalStartTime,
                                      String workflowBatch,
                                      Arguments runtimeArguments,
@@ -74,7 +75,7 @@ public abstract class AbstractMapReduceContextBuilder {
 
     // See if it was launched from Workflow; if it was, change the Program.
     if (workflowBatch != null) {
-      MapReduceSpecification mapReduceSpec = program.getSpecification().getMapReduce().get(workflowBatch);
+      MapReduceSpecification mapReduceSpec = program.getApplicationSpecification().getMapReduce().get(workflowBatch);
       Preconditions.checkArgument(mapReduceSpec != null, "Cannot find MapReduceSpecification for %s", workflowBatch);
       program = new WorkflowMapReduceProgram(program, mapReduceSpec);
     }
@@ -84,7 +85,7 @@ public abstract class AbstractMapReduceContextBuilder {
     DatasetFramework datasetFramework = injector.getInstance(DatasetFramework.class);
     CConfiguration configuration = injector.getInstance(CConfiguration.class);
 
-    ApplicationSpecification programSpec = program.getSpecification();
+    ApplicationSpecification programSpec = program.getApplicationSpecification();
 
     // if this is not for a mapper or a reducer, we don't need the metrics collection service
     MetricsCollectionService metricsCollectionService =
@@ -93,9 +94,9 @@ public abstract class AbstractMapReduceContextBuilder {
     DiscoveryServiceClient discoveryServiceClient = injector.getInstance(DiscoveryServiceClient.class);
 
     // Creating mapreduce job context
-    MapReduceSpecification spec = program.getSpecification().getMapReduce().get(program.getName());
+    MapReduceSpecification spec = program.getApplicationSpecification().getMapReduce().get(program.getName());
     BasicMapReduceContext context =
-      new BasicMapReduceContext(program, type, RunIds.fromString(runId),
+      new BasicMapReduceContext(program, type, RunIds.fromString(runId), taskId,
                                 runtimeArguments, programSpec.getDatasets().keySet(), spec, logicalStartTime,
                                 workflowBatch, discoveryServiceClient, metricsCollectionService,
                                 datasetFramework, configuration);

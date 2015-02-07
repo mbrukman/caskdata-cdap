@@ -1,5 +1,5 @@
 /*
- * Copyright © 2014 Cask Data, Inc.
+ * Copyright © 2014-2015 Cask Data, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not
  * use this file except in compliance with the License. You may obtain a copy of
@@ -57,6 +57,7 @@ public final class HBaseQueueRegionObserver extends BaseRegionObserver {
   private ConsumerConfigCache configCache;
 
   private int prefixBytes;
+  private String namespaceId;
   private String appName;
   private String flowName;
 
@@ -78,6 +79,7 @@ public final class HBaseQueueRegionObserver extends BaseRegionObserver {
         this.prefixBytes = HBaseQueueAdmin.SALT_BYTES;
       }
 
+      namespaceId = HBaseQueueAdmin.getNamespaceId(tableName);
       appName = HBaseQueueAdmin.getApplicationName(tableName);
       flowName = HBaseQueueAdmin.getFlowName(tableName);
 
@@ -163,8 +165,9 @@ public final class HBaseQueueRegionObserver extends BaseRegionObserver {
 
         // This row is a queue entry. If currentQueue is null, meaning it's a new queue encountered during scan.
         if (currentQueue == null) {
-          QueueName queueName = QueueEntryRow.getQueueName(
-            appName, flowName, prefixBytes, cell.getRowArray(), cell.getRowOffset(), cell.getRowLength());
+          QueueName queueName = QueueEntryRow.getQueueName(namespaceId, appName, flowName, prefixBytes,
+                                                           cell.getRowArray(), cell.getRowOffset(),
+                                                           cell.getRowLength());
           currentQueue = queueName.toBytes();
           currentQueueRowPrefix = QueueEntryRow.getQueueRowPrefix(queueName);
           consumerConfig = configCache.getConsumerConfig(currentQueue);

@@ -17,10 +17,13 @@
 package co.cask.cdap.cli.command;
 
 import co.cask.cdap.cli.ArgumentName;
+import co.cask.cdap.cli.CLIConfig;
+import co.cask.cdap.cli.Categorized;
+import co.cask.cdap.cli.CommandCategory;
 import co.cask.cdap.cli.ElementType;
+import co.cask.cdap.cli.util.AbstractAuthCommand;
 import co.cask.cdap.client.StreamClient;
 import co.cask.common.cli.Arguments;
-import co.cask.common.cli.Command;
 
 import java.io.PrintStream;
 import javax.inject.Inject;
@@ -28,17 +31,18 @@ import javax.inject.Inject;
 /**
  * Sends an event to a stream.
  */
-public class SendStreamEventCommand implements Command {
+public class SendStreamEventCommand extends AbstractAuthCommand implements Categorized {
 
   private final StreamClient streamClient;
 
   @Inject
-  public SendStreamEventCommand(StreamClient streamClient) {
+  public SendStreamEventCommand(StreamClient streamClient, CLIConfig cliConfig) {
+    super(cliConfig);
     this.streamClient = streamClient;
   }
 
   @Override
-  public void execute(Arguments arguments, PrintStream output) throws Exception {
+  public void perform(Arguments arguments, PrintStream output) throws Exception {
     String streamId = arguments.get(ArgumentName.STREAM.toString());
     String streamEvent = arguments.get(ArgumentName.STREAM_EVENT.toString());
     streamClient.sendEvent(streamId, streamEvent);
@@ -53,5 +57,10 @@ public class SendStreamEventCommand implements Command {
   @Override
   public String getDescription() {
     return "Sends an event to a " + ElementType.STREAM.getPrettyName();
+  }
+
+  @Override
+  public String getCategory() {
+    return CommandCategory.INGEST.getName();
   }
 }

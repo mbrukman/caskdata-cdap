@@ -49,6 +49,7 @@ import org.apache.http.client.HttpClient;
 import org.apache.http.client.methods.HttpGet;
 import org.apache.twill.discovery.Discoverable;
 import org.apache.twill.discovery.DiscoveryServiceClient;
+import org.jboss.netty.handler.codec.http.HttpHeaders;
 import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.Test;
@@ -115,7 +116,7 @@ public abstract class ExternalAuthenticationServerTestBase {
     if (configuration.getBoolean(Constants.Security.SSL_ENABLED)) {
       port = configuration.getInt(Constants.Security.AuthenticationServer.SSL_PORT);
     } else {
-      port = configuration.getInt(Constants.Security.AUTH_SERVER_PORT);
+      port = configuration.getInt(Constants.Security.AUTH_SERVER_BIND_PORT);
     }
 
     try {
@@ -141,7 +142,7 @@ public abstract class ExternalAuthenticationServerTestBase {
     String configBase = Constants.Security.AUTH_HANDLER_CONFIG_BASE;
 
     // Use random port for testing
-    cConf.setInt(Constants.Security.AUTH_SERVER_PORT, Networks.getRandomPort());
+    cConf.setInt(Constants.Security.AUTH_SERVER_BIND_PORT, Networks.getRandomPort());
     cConf.setInt(Constants.Security.AuthenticationServer.SSL_PORT, Networks.getRandomPort());
 
     cConf.set(Constants.Security.AUTH_HANDLER_CLASS, LDAPAuthenticationHandler.class.getName());
@@ -208,9 +209,9 @@ public abstract class ExternalAuthenticationServerTestBase {
     verify(TEST_AUDIT_LOGGER, timeout(10000).atLeastOnce()).trace(contains("admin"));
 
     // Test correct headers being returned
-    String cacheControlHeader = response.getFirstHeader("Cache-Control").getValue();
-    String pragmaHeader = response.getFirstHeader("Pragma").getValue();
-    String contentType = response.getFirstHeader("Content-Type").getValue();
+    String cacheControlHeader = response.getFirstHeader(HttpHeaders.Names.CACHE_CONTROL).getValue();
+    String pragmaHeader = response.getFirstHeader(HttpHeaders.Names.PRAGMA).getValue();
+    String contentType = response.getFirstHeader(HttpHeaders.Names.CONTENT_TYPE).getValue();
 
     assertEquals("no-store", cacheControlHeader);
     assertEquals("no-cache", pragmaHeader);

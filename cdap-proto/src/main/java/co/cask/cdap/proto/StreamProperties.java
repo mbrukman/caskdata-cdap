@@ -15,9 +15,8 @@
  */
 package co.cask.cdap.proto;
 
+import co.cask.cdap.api.data.format.FormatSpecification;
 import com.google.common.base.Objects;
-
-import javax.annotation.Nullable;
 
 /**
  * Represents the properties of a stream.
@@ -25,11 +24,15 @@ import javax.annotation.Nullable;
 public final class StreamProperties {
 
   private final String name;
-  private final long ttl;
+  private final Long ttl;
+  private final FormatSpecification format;
+  private final Integer threshold;
 
-  public StreamProperties(String name, long ttl) {
+  public StreamProperties(String name, long ttl, FormatSpecification format, int threshold) {
     this.name = name;
     this.ttl = ttl;
+    this.format = format;
+    this.threshold = threshold;
   }
 
   /**
@@ -38,11 +41,49 @@ public final class StreamProperties {
   public String getName() {
     return name;
   }
+
   /**
    * @return The time to live in seconds for events in this stream.
    */
-  public long getTTL() {
+  public Long getTTL() {
     return ttl;
+  }
+
+  /**
+   * @return The format specification for the stream.
+   */
+  public FormatSpecification getFormat() {
+    return format;
+  }
+
+  /**
+   *
+   * @return The threshold of the stream
+   */
+  public Integer getThreshold() {
+    return threshold;
+  }
+
+  @Override
+  public boolean equals(Object o) {
+    if (this == o) {
+      return true;
+    }
+    if (!(o instanceof StreamProperties)) {
+      return false;
+    }
+
+    StreamProperties that = (StreamProperties) o;
+
+    return Objects.equal(name, that.name) &&
+      Objects.equal(ttl, that.ttl) &&
+      Objects.equal(format, that.format) &
+      Objects.equal(threshold, that.threshold);
+  }
+
+  @Override
+  public int hashCode() {
+    return Objects.hashCode(name, ttl, format, threshold);
   }
 
   @Override
@@ -50,6 +91,8 @@ public final class StreamProperties {
     return Objects.toStringHelper(this)
       .add("name", name)
       .add("ttl", ttl)
+      .add("format", format)
+      .add("threshold", threshold)
       .toString();
   }
 }

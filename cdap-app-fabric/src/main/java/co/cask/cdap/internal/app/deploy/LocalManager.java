@@ -1,5 +1,5 @@
 /*
- * Copyright © 2014 Cask Data, Inc.
+ * Copyright © 2014-2015 Cask Data, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not
  * use this file except in compliance with the License. You may obtain a copy of
@@ -20,20 +20,25 @@ import co.cask.cdap.app.deploy.Manager;
 import co.cask.cdap.app.store.Store;
 import co.cask.cdap.app.store.StoreFactory;
 import co.cask.cdap.common.conf.CConfiguration;
+import co.cask.cdap.common.conf.Constants;
 import co.cask.cdap.data.Namespace;
 import co.cask.cdap.data2.datafabric.DefaultDatasetNamespace;
 import co.cask.cdap.data2.dataset2.DatasetFramework;
 import co.cask.cdap.data2.dataset2.NamespacedDatasetFramework;
 import co.cask.cdap.data2.transaction.queue.QueueAdmin;
+import co.cask.cdap.data2.transaction.stream.StreamAdmin;
 import co.cask.cdap.data2.transaction.stream.StreamConsumerFactory;
+import co.cask.cdap.explore.client.ExploreFacade;
 import co.cask.cdap.internal.app.deploy.pipeline.ApplicationRegistrationStage;
 import co.cask.cdap.internal.app.deploy.pipeline.CreateDatasetInstancesStage;
+import co.cask.cdap.internal.app.deploy.pipeline.CreateStreamsStage;
 import co.cask.cdap.internal.app.deploy.pipeline.DeletedProgramHandlerStage;
 import co.cask.cdap.internal.app.deploy.pipeline.DeployCleanupStage;
 import co.cask.cdap.internal.app.deploy.pipeline.DeployDatasetModulesStage;
 import co.cask.cdap.internal.app.deploy.pipeline.LocalArchiveLoaderStage;
 import co.cask.cdap.internal.app.deploy.pipeline.ProgramGenerationStage;
 import co.cask.cdap.internal.app.deploy.pipeline.VerificationStage;
+import co.cask.cdap.internal.app.runtime.adapter.AdapterService;
 import co.cask.cdap.pipeline.Pipeline;
 import co.cask.cdap.pipeline.PipelineFactory;
 import co.cask.cdap.proto.Id;
@@ -59,10 +64,14 @@ public class LocalManager<I, O> implements Manager<I, O> {
   private final StreamConsumerFactory streamConsumerFactory;
   private final QueueAdmin queueAdmin;
   private final DiscoveryServiceClient discoveryServiceClient;
+  private final StreamAdmin streamAdmin;
+  private final DatasetFramework datasetFramework;
+  private final ExploreFacade exploreFacade;
+  private final boolean exploreEnabled;
 
+  private final AdapterService adapterService;
   private final ProgramTerminator programTerminator;
 
-  private final DatasetFramework datasetFramework;
 
 
   @Inject
@@ -71,6 +80,8 @@ public class LocalManager<I, O> implements Manager<I, O> {
                       StreamConsumerFactory streamConsumerFactory,
                       QueueAdmin queueAdmin, DiscoveryServiceClient discoveryServiceClient,
                       DatasetFramework datasetFramework,
+                      StreamAdmin streamAdmin, ExploreFacade exploreFacade,
+                      AdapterService adapterService,
                       @Assisted ProgramTerminator programTerminator) {
 
     this.configuration = configuration;
@@ -84,15 +95,20 @@ public class LocalManager<I, O> implements Manager<I, O> {
     this.datasetFramework =
       new NamespacedDatasetFramework(datasetFramework,
                                      new DefaultDatasetNamespace(configuration, Namespace.USER));
+    this.streamAdmin = streamAdmin;
+    this.exploreFacade = exploreFacade;
+    this.exploreEnabled = configuration.getBoolean(Constants.Explore.EXPLORE_ENABLED);
+    this.adapterService = adapterService;
   }
 
   @Override
-  public ListenableFuture<O> deploy(Id.Account id, @Nullable String appId, I input) throws Exception {
+  public ListenableFuture<O> deploy(Id.Namespace id, @Nullable String appId, I input) throws Exception {
     Pipeline<O> pipeline = pipelineFactory.getPipeline();
     pipeline.addLast(new LocalArchiveLoaderStage(configuration, id, appId));
-    pipeline.addLast(new VerificationStage(datasetFramework));
+    pipeline.addLast(new VerificationStage(datasetFramework, adapterService));
     pipeline.addLast(new DeployDatasetModulesStage(datasetFramework));
     pipeline.addLast(new CreateDatasetInstancesStage(datasetFramework));
+    pipeline.addLast(new CreateStreamsStage(streamAdmin, exploreFacade, exploreEnabled));
     pipeline.addLast(new DeletedProgramHandlerStage(store, programTerminator, streamConsumerFactory,
                                                     queueAdmin, discoveryServiceClient));
     pipeline.addLast(new ProgramGenerationStage(configuration, locationFactory));

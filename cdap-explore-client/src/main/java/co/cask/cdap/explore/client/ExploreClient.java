@@ -40,7 +40,7 @@ public interface ExploreClient extends Closeable {
    * @return a {@code Future} object that can either successfully complete, or enter a failed state depending on
    *         the success of the enable operation.
    */
-  ListenableFuture<Void> enableExplore(String datasetInstance);
+  ListenableFuture<Void> enableExploreDataset(String datasetInstance);
 
   /**
    * Disable ad-hoc exploration of the given {@link co.cask.cdap.api.data.batch.RecordScannable}.
@@ -49,7 +49,46 @@ public interface ExploreClient extends Closeable {
    * @return a {@code Future} object that can either successfully complete, or enter a failed state depending on
    *         the success of the disable operation.
    */
-  ListenableFuture<Void> disableExplore(String datasetInstance);
+  ListenableFuture<Void> disableExploreDataset(String datasetInstance);
+
+  /**
+   * Enables ad-hoc exploration of the given stream.
+   *
+   * @param streamName stream name.
+   * @return a {@code Future} object that can either successfully complete, or enter a failed state depending on
+   *         the success of the enable operation.
+   */
+  ListenableFuture<Void> enableExploreStream(String streamName);
+
+  /**
+   * Disable ad-hoc exploration of the given stream.
+   *
+   * @param streamName stream name.
+   * @return a {@code Future} object that can either successfully complete, or enter a failed state depending on
+   *         the success of the enable operation.
+   */
+  ListenableFuture<Void> disableExploreStream(String streamName);
+
+  /**
+   * Add a partition to a dataset's table.
+   *
+   * @param datasetName name of the dataset
+   * @param time the partition time
+   * @param path the file system path of the partition
+   * @return a {@code Future} object that can either successfully complete, or enter a failed state depending on
+   *         the success of the operation.
+   */
+  ListenableFuture<Void> addPartition(String datasetName, long time, String path);
+
+  /**
+   * Drop a partition from a dataset's table.
+   *
+   * @param datasetName name of the dataset
+   * @param time the partition time
+   * @return a {@code Future} object that can either successfully complete, or enter a failed state depending on
+   *         the success of the operation.
+   */
+  ListenableFuture<Void> dropPartition(String datasetName, long time);
 
   /**
    * Execute a Hive SQL statement asynchronously. The returned {@link ListenableFuture} can be used to get the

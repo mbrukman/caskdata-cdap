@@ -15,7 +15,6 @@
  */
 package co.cask.cdap.metrics.query;
 
-import co.cask.cdap.common.metrics.MetricsScope;
 import co.cask.cdap.metrics.data.Interpolator;
 
 import java.net.URI;
@@ -34,6 +33,21 @@ interface MetricsRequest {
     AGGREGATE
   }
 
+  enum TimeSeriesResolution {
+    SECOND(1),
+    MINUTE(60),
+    HOUR(3600);
+
+    private int resolution;
+    private TimeSeriesResolution(int resolution) {
+      this.resolution = resolution;
+    }
+
+    public int getResolution() {
+      return resolution;
+    }
+  }
+
   URI getRequestURI();
 
   String getContextPrefix();
@@ -50,9 +64,9 @@ interface MetricsRequest {
 
   Type getType();
 
+  int getTimeSeriesResolution();
+
   int getCount();
 
   Interpolator getInterpolator();
-
-  MetricsScope getScope();
 }

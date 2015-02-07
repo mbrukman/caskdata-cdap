@@ -1,5 +1,5 @@
 /*
- * Copyright © 2014 Cask Data, Inc.
+ * Copyright © 2014-2015 Cask Data, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not
  * use this file except in compliance with the License. You may obtain a copy of
@@ -28,9 +28,11 @@ import co.cask.cdap.WordCountApp;
 import co.cask.cdap.api.data.stream.StreamSpecification;
 import co.cask.cdap.api.dataset.lib.KeyValueTable;
 import co.cask.cdap.api.dataset.lib.ObjectStore;
+import co.cask.cdap.api.schedule.ScheduleSpecification;
 import co.cask.cdap.api.service.ServiceSpecification;
 import co.cask.cdap.api.service.http.HttpServiceHandlerSpecification;
 import co.cask.cdap.api.service.http.ServiceHttpEndpoint;
+import co.cask.cdap.common.conf.Constants;
 import co.cask.cdap.common.queue.QueueName;
 import co.cask.cdap.data2.queue.ConsumerConfig;
 import co.cask.cdap.data2.queue.DequeueStrategy;
@@ -42,6 +44,7 @@ import co.cask.cdap.gateway.handlers.AppFabricHttpHandler;
 import co.cask.cdap.internal.app.HttpServiceSpecificationCodec;
 import co.cask.cdap.internal.app.ServiceSpecificationCodec;
 import co.cask.cdap.internal.app.services.http.AppFabricTestBase;
+import co.cask.cdap.proto.ProgramType;
 import co.cask.cdap.test.SlowTests;
 import co.cask.cdap.test.XSlowTests;
 import co.cask.tephra.Transaction;
@@ -84,8 +87,6 @@ import java.util.concurrent.TimeUnit;
 public class AppFabricHttpHandlerTest extends AppFabricTestBase {
 
   private static final Gson GSON = new Gson();
-  private static final Type MAP_STRING_STRING_TYPE = new TypeToken<Map<String, String>>() { }.getType();
-  private static final Type LIST_MAP_STRING_STRING_TYPE = new TypeToken<List<Map<String, String>>>() { }.getType();
 
   private String getRunnableStatus(String runnableType, String appId, String runnableId) throws Exception {
     HttpResponse response =
@@ -109,16 +110,8 @@ public class AppFabricHttpHandlerTest extends AppFabricTestBase {
     JsonObject json = new JsonObject();
     json.addProperty("instances", instances);
     HttpResponse response = doPut("/v2/apps/" + appId + "/flows/" + flowId + "/flowlets/" +
-                                                         flowletId + "/instances", json.toString());
+                                    flowletId + "/instances", json.toString());
     Assert.assertEquals(200, response.getStatusLine().getStatusCode());
-  }
-  private String getDeploymentStatus() throws Exception {
-    HttpResponse response =
-      doGet("/v2/deploy/status/");
-    Assert.assertEquals(200, response.getStatusLine().getStatusCode());
-    String s = EntityUtils.toString(response.getEntity());
-    Map<String, String> o = new Gson().fromJson(s, new TypeToken<Map<String, String>>() { }.getType());
-    return o.get("status");
   }
 
   private int getRunnableStartStop(String runnableType, String appId, String runnableId, String action)
@@ -157,47 +150,6 @@ public class AppFabricHttpHandlerTest extends AppFabricTestBase {
     } finally {
       Assert.assertEquals(200, doDelete("/v2/apps/" + appId).getStatusLine().getStatusCode());
     }
-  }
-
-  private void scheduleHistoryCheck(int retries, String url, int expected) throws Exception {
-    int trial = 0;
-    int workflowRuns = 0;
-    List<Map<String, String>> history;
-    String json;
-    HttpResponse response;
-    while (trial++ < retries) {
-      response = doGet(url);
-      Assert.assertEquals(200, response.getStatusLine().getStatusCode());
-      json = EntityUtils.toString(response.getEntity());
-      history = new Gson().fromJson(json, LIST_MAP_STRING_STRING_TYPE);
-      workflowRuns = history.size();
-      if (workflowRuns > expected) {
-        return;
-      }
-      TimeUnit.SECONDS.sleep(1);
-    }
-    Assert.assertTrue(workflowRuns > expected);
-  }
-
-  private void scheduleStatusCheck(int retires, String url,
-                                   String expected) throws Exception {
-    int trial = 0;
-    String status = null;
-    String json = null;
-    Map<String, String> output;
-    HttpResponse response;
-    while (trial++ < retires) {
-      response = doGet(url);
-      Assert.assertEquals(200, response.getStatusLine().getStatusCode());
-      json = EntityUtils.toString(response.getEntity());
-      output = new Gson().fromJson(json, MAP_STRING_STRING_TYPE);
-      status = output.get("status");
-      if (status.equals(expected)) {
-        return;
-      }
-      TimeUnit.SECONDS.sleep(1);
-    }
-    Assert.assertEquals(status, expected);
   }
 
   private void historyStatusWithRetry(String url, int size) throws Exception {
@@ -399,6 +351,10 @@ public class AppFabricHttpHandlerTest extends AppFabricTestBase {
   @Test
   public void testChangeFlowletStreamInput() throws Exception {
     deploy(MultiStreamApp.class);
+
+    // non-existing stream
+    Assert.assertEquals(404,
+                        changeFlowletStreamInput("MultiStreamApp", "CounterFlow", "counter1", "stream1", "notfound"));
 
     Assert.assertEquals(200,
                         changeFlowletStreamInput("MultiStreamApp", "CounterFlow", "counter1", "stream1", "stream2"));
@@ -627,6 +583,10 @@ public class AppFabricHttpHandlerTest extends AppFabricTestBase {
       o = new Gson().fromJson(s, LIST_MAP_STRING_STRING_TYPE);
       Assert.assertTrue(o.isEmpty());
 
+      // verify flows by non-existent stream
+      response = doGet("/v2/streams/nosuch/flows");
+      Assert.assertEquals(404, response.getStatusLine().getStatusCode());
+
       // verify flows by stream
       response = doGet("/v2/streams/text/flows");
       Assert.assertEquals(200, response.getStatusLine().getStatusCode());
@@ -644,6 +604,13 @@ public class AppFabricHttpHandlerTest extends AppFabricTestBase {
       Assert.assertEquals(1, o.size());
       Assert.assertTrue(o.contains(ImmutableMap.of("type", "Flow", "app", "WordCountApp", "id", "WordCountFlow", "name",
                                                    "WordCountFlow", "description", "Flow for counting words")));
+
+      // verify flows by dataset not used by any flow
+      response = doGet("/v2/datasets/input/flows");
+      Assert.assertEquals(200, response.getStatusLine().getStatusCode());
+      s = EntityUtils.toString(response.getEntity());
+      o = new Gson().fromJson(s, LIST_MAP_STRING_STRING_TYPE);
+      Assert.assertTrue(o.isEmpty());
 
       // verify one dataset
       response = doGet("/v2/datasets/mydataset");
@@ -790,9 +757,8 @@ public class AppFabricHttpHandlerTest extends AppFabricTestBase {
   public void testStatus() throws Exception {
 
     //deploy and check the status
-    deploy(WordCountApp.class);
-    //check the status of the deployment
-    Assert.assertEquals("DEPLOYED", getDeploymentStatus());
+    Assert.assertEquals(200, deploy(WordCountApp.class).getStatusLine().getStatusCode());
+
     Assert.assertEquals("STOPPED", getRunnableStatus("flows", "WordCountApp", "WordCountFlow"));
 
     //start flow and check the status
@@ -1000,6 +966,23 @@ public class AppFabricHttpHandlerTest extends AppFabricTestBase {
     Assert.assertEquals(200, response.getStatusLine().getStatusCode());
   }
 
+  private void setAndTestRuntimeArgs(String appId, String runnableType, String runnableId,
+                                     Map<String, String> args) throws Exception {
+    HttpResponse response;
+    String argString = GSON.toJson(args, new TypeToken<Map<String, String>>() { }.getType());
+    String runtimeArgsUrl = String.format("/v2/apps/%s/%s/%s/runtimeargs", appId, runnableType, runnableId);
+    response = doPut(runtimeArgsUrl, argString);
+
+    Assert.assertEquals(200, response.getStatusLine().getStatusCode());
+    response = doGet(runtimeArgsUrl);
+
+    Assert.assertEquals(200, response.getStatusLine().getStatusCode());
+    String responseEntity = EntityUtils.toString(response.getEntity());
+    Map<String, String> argsRead = GSON.fromJson(responseEntity, new TypeToken<Map<String, String>>() { }.getType());
+
+    Assert.assertEquals(args.size(), argsRead.size());
+  }
+
   /**
    * Test for schedule handlers.
    */
@@ -1017,24 +1000,33 @@ public class AppFabricHttpHandlerTest extends AppFabricTestBase {
     HttpResponse response = deploy(AppWithSchedule.class);
     Assert.assertEquals(200, response.getStatusLine().getStatusCode());
 
+    Map<String, String> runtimeArguments = Maps.newHashMap();
+    runtimeArguments.put("someKey", "someWorkflowValue");
+    runtimeArguments.put("workflowKey", "workflowValue");
+
+    setAndTestRuntimeArgs("AppWithSchedule", ProgramType.WORKFLOW.getCategoryName(), "SampleWorkflow",
+                          runtimeArguments);
+
     response = doGet("/v2/apps/AppWithSchedule/workflows/SampleWorkflow/schedules");
     Assert.assertEquals(200, response.getStatusLine().getStatusCode());
     String json = EntityUtils.toString(response.getEntity());
-    List<String> schedules = new Gson().fromJson(json, new TypeToken<List<String>>() { }.getType());
+    List<ScheduleSpecification> schedules = new Gson().fromJson(json,
+                                                                new TypeToken<List<ScheduleSpecification>>()
+                                                                { }.getType());
     Assert.assertEquals(1, schedules.size());
-    String scheduleId = schedules.get(0);
-    Assert.assertNotNull(scheduleId);
-    Assert.assertFalse(scheduleId.isEmpty());
+    String scheduleName = schedules.get(0).getSchedule().getName();
+    Assert.assertNotNull(scheduleName);
+    Assert.assertFalse(scheduleName.isEmpty());
 
-    scheduleHistoryCheck(5, "/v2/apps/AppWithSchedule/workflows/SampleWorkflow/runs?status=completed", 0);
+    scheduleHistoryRuns(5, "/v2/apps/AppWithSchedule/workflows/SampleWorkflow/runs?status=completed", 0);
 
     //Check suspend status
-    String scheduleStatus = String.format("/v2/apps/AppWithSchedule/workflows/SampleWorkflow/schedules/%s/status",
-                                          scheduleId);
+    String scheduleStatus = String.format("/v2/apps/AppWithSchedule/schedules/%s/status",
+                                          scheduleName);
     scheduleStatusCheck(5, scheduleStatus, "SCHEDULED");
 
-    String scheduleSuspend = String.format("/v2/apps/AppWithSchedule/workflows/SampleWorkflow/schedules/%s/suspend",
-                                           scheduleId);
+    String scheduleSuspend = String.format("/v2/apps/AppWithSchedule/schedules/%s/suspend",
+                                           scheduleName);
 
     response = doPost(scheduleSuspend);
     Assert.assertEquals(200, response.getStatusLine().getStatusCode());
@@ -1060,21 +1052,20 @@ public class AppFabricHttpHandlerTest extends AppFabricTestBase {
     int workflowRunsAfterSuspend = history.size();
     Assert.assertEquals(workflowRuns, workflowRunsAfterSuspend);
 
-    String scheduleResume = String.format("/v2/apps/AppWithSchedule/workflows/SampleWorkflow/schedules/%s/resume",
-                                          scheduleId);
+    String scheduleResume = String.format("/v2/apps/AppWithSchedule/schedules/%s/resume",
+                                          scheduleName);
 
     response = doPost(scheduleResume);
     Assert.assertEquals(200, response.getStatusLine().getStatusCode());
 
-    scheduleHistoryCheck(5, "/v2/apps/AppWithSchedule/workflows/SampleWorkflow/runs?status=completed",
-                         workflowRunsAfterSuspend);
+    scheduleHistoryRuns(5, "/v2/apps/AppWithSchedule/workflows/SampleWorkflow/runs?status=completed",
+                        workflowRunsAfterSuspend);
 
     //check scheduled state
     scheduleStatusCheck(5, scheduleStatus, "SCHEDULED");
 
     //Check status of a non existing schedule
-    String notFoundSchedule = String.format("/v2/apps/AppWithSchedule/workflows/SampleWorkflow/schedules/%s/status",
-                                            "invalidId");
+    String notFoundSchedule = String.format("/v2/apps/AppWithSchedule/schedules/%s/status", "invalidId");
 
     scheduleStatusCheck(5, notFoundSchedule, "NOT_FOUND");
 
@@ -1194,7 +1185,7 @@ public class AppFabricHttpHandlerTest extends AppFabricTestBase {
 
   private  QueueName getQueueName(String name) {
     // i.e. flow and flowlet are constants: should be good enough
-    return QueueName.fromFlowlet("app1", "flow1", "flowlet1", name);
+    return QueueName.fromFlowlet(Constants.DEFAULT_NAMESPACE, "app1", "flow1", "flowlet1", name);
   }
 
   /**

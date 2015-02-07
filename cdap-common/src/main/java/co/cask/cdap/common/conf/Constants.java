@@ -1,5 +1,5 @@
 /*
- * Copyright © 2014 Cask Data, Inc.
+ * Copyright © 2014-2015 Cask Data, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not
  * use this file except in compliance with the License. You may obtain a copy of
@@ -84,6 +84,7 @@ public final class Constants {
     public static final String EXEC_THREADS = "app.exec.threads";
     public static final String BOSS_THREADS = "app.boss.threads";
     public static final String WORKER_THREADS = "app.worker.threads";
+    public static final String ADAPTER_DIR = "app.adapter.dir";
 
     /**
      * Defaults.
@@ -127,6 +128,14 @@ public final class Constants {
   public class Scheduler {
     public static final String CFG_SCHEDULER_MAX_THREAD_POOL_SIZE = "scheduler.max.thread.pool.size";
     public static final int DEFAULT_THREAD_POOL_SIZE = 30;
+  }
+
+  /**
+   * Configuration Store.
+   */
+  public static final class ConfigStore {
+    public static final String CONFIG_TABLE = "config.store.table";
+    public static final Byte VERSION = 0;
   }
 
   /**
@@ -223,8 +232,11 @@ public final class Constants {
     public static final String PARTITION_DURATION = "stream.partition.duration";
     public static final String INDEX_INTERVAL = "stream.index.interval";
     public static final String FILE_PREFIX = "stream.file.prefix";
+    public static final String INSTANCE_FILE_PREFIX = "stream.instance.file.prefix";
     public static final String CONSUMER_TABLE_PRESPLITS = "stream.consumer.table.presplits";
     public static final String FILE_CLEANUP_PERIOD = "stream.file.cleanup.period";
+    public static final String BATCH_BUFFER_THRESHOLD = "stream.batch.buffer.threshold";
+    public static final String NOTIFICATION_THRESHOLD = "stream.notification.threshold";
 
     // Stream http service configurations.
     public static final String STREAM_HANDLER = "stream.handler";
@@ -253,24 +265,36 @@ public final class Constants {
      * Contains HTTP headers used by Stream handler.
      */
     public static final class Headers {
-      public static final String CONSUMER_ID = "X-ConsumerId";
+      public static final String SCHEMA = "schema";
+      public static final String SCHEMA_HASH = "schema.hash";
     }
 
-    //max instances of stream handler service
+    // max instances of stream handler service
     public static final String MAX_INSTANCES = "stream.container.instances";
 
     public static final String SERVICE_DESCRIPTION = "Service that handles stream data ingestion.";
     /* End constants used by stream */
+
+    // Period in seconds between two heartbeats in a stream service
+    public static final int HEARTBEAT_INTERVAL = 2;
+
+    // Zookeeper namespace in which to keep the coordination metadata
+    public static final String STREAM_ZK_COORDINATION_NAMESPACE = String.format("/%s/coordination", Service.STREAMS);
   }
 
   /**
    * Gateway Configurations.
    */
   public static final class Gateway {
-    public static final String GATEWAY_VERSION_TOKEN = "v2";
-    public static final String GATEWAY_VERSION = "/" + GATEWAY_VERSION_TOKEN;
+    public static final String API_VERSION_2_TOKEN = "v2";
+    public static final String API_VERSION_2 = "/" + API_VERSION_2_TOKEN;
+    /**
+     * v3 API.
+     */
+    public static final String API_VERSION_3_TOKEN = "v3";
+    public static final String API_VERSION_3 = "/" + API_VERSION_3_TOKEN;
     public static final String STREAM_HANDLER_NAME = "stream.rest";
-    public static final String METRICS_CONTEXT = "gateway." + Gateway.STREAM_HANDLER_NAME;
+    public static final String METRICS_CONTEXT = "gateway";
     public static final String API_KEY = "X-ApiKey";
   }
 
@@ -344,6 +368,34 @@ public final class Constants {
       /** Defines reporting interval for LevelDB stats, in seconds */
       public static final String LEVELDB_STATS_REPORT_INTERVAL = "metrics.dataset.leveldb.stats.report.interval";
     }
+
+    /**
+     * Metrics context tags
+     */
+    public static final class Tag {
+      // NOTES:
+      //   * tag names must be unique (keeping all possible here helps to ensure that)
+      //   * tag names better be short to reduce the serialized metric value size
+      public static final String RUN_ID = "run";
+      public static final String INSTANCE_ID = "ins";
+      public static final String COMPONENT = "cmp";
+      public static final String STREAM = "str";
+      public static final String DATASET = "ds";
+      public static final String SERVICE = "srv";
+      public static final String SERVICE_RUNNABLE = "srn";
+      public static final String HANDLER = "hnd";
+      public static final String METHOD = "mtd";
+      public static final String MR_TASK_TYPE = "mrt";
+      public static final String APP = "app";
+      public static final String PROGRAM = "prg";
+      public static final String PROGRAM_TYPE = "ptp";
+      public static final String FLOWLET = "flt";
+      public static final String FLOWLET_QUEUE = "flq";
+      public static final String CLUSTER_METRICS = "cls";
+      public static final String NAMESPACE = "ns";
+      // who emitted: user vs system (scope is historical name)
+      public static final String SCOPE = "scp";
+    }
   }
 
   /**
@@ -410,10 +462,12 @@ public final class Constants {
     public static final String TOKEN_DIGEST_KEY_EXPIRATION = "security.token.digest.key.expiration.ms";
     /** Parent znode used for secret key distribution in ZooKeeper. */
     public static final String DIST_KEY_PARENT_ZNODE = "security.token.distributed.parent.znode";
-    /** Address the Authentication Server should bind to*/
+    /** TODO: Config param is deprecated, AUTH_SERVER_BIND_ADDRESS should be used instead. */
     public static final String AUTH_SERVER_ADDRESS = "security.auth.server.address";
+    /** Address the Authentication Server should bind to. */
+    public static final String AUTH_SERVER_BIND_ADDRESS = "security.auth.server.bind.address";
     /** Configuration for External Authentication Server. */
-    public static final String AUTH_SERVER_PORT = "security.auth.server.bind.port";
+    public static final String AUTH_SERVER_BIND_PORT = "security.auth.server.bind.port";
     /** Maximum number of handler threads for the Authentication Server embedded Jetty instance. */
     public static final String MAX_THREADS = "security.server.maxthreads";
     /** Access token expiration time in milliseconds. */
@@ -492,14 +546,19 @@ public final class Constants {
     public static final String HCONF_KEY = "explore.hconfiguration";
     public static final String TX_QUERY_KEY = "explore.hive.query.tx.id";
     public static final String TX_QUERY_CLOSED = "explore.hive.query.tx.commited";
+    public static final String QUERY_ID = "explore.query.id";
 
     public static final String START_ON_DEMAND = "explore.start.on.demand";
 
     public static final String DATASET_NAME = "explore.dataset.name";
     public static final String DATASET_STORAGE_HANDLER_CLASS = "co.cask.cdap.hive.datasets.DatasetStorageHandler";
+    public static final String STREAM_NAME = "explore.stream.name";
+    public static final String STREAM_STORAGE_HANDLER_CLASS = "co.cask.cdap.hive.stream.StreamStorageHandler";
     public static final String EXPLORE_CLASSPATH = "explore.classpath";
     public static final String EXPLORE_CONF_FILES = "explore.conf.files";
     public static final String PREVIEWS_DIR_NAME = "explore.previews.dir";
+    // a marker so that we know which tables are created by CDAP
+    public static final String CDAP_NAME = "cdap.name";
 
     public static final String SERVER_ADDRESS = "explore.service.bind.address";
 
@@ -530,6 +589,28 @@ public final class Constants {
      */
     public static final class Jdbc {
       public static final String URL_PREFIX = "jdbc:cdap://";
+    }
+  }
+
+  /**
+   * Notification system configuration.
+   */
+  public static final class Notification {
+    public static final String TRANSPORT_SYSTEM = "notification.transport.system";
+
+    /**
+     * Notifications in Streams constants.
+     */
+    public static final class Stream {
+      public static final String STREAM_FEED_CATEGORY = "stream";
+      public static final String STREAM_INTERNAL_FEED_CATEGORY = "streamInternal";
+      public static final String STREAM_HEARTBEAT_FEED_NAME = "heartbeat";
+
+      /** Default number of bytes received by a stream after which a notification is sent */
+      public static final long DEFAULT_DATA_THRESHOLD = 1024 * 1024 * 1024;
+
+      public static final int INIT_HEARTBEAT_AGGREGATION_DELAY = 2;
+      public static final int HEARTBEAT_AGGREGATION_INTERVAL = 5;
     }
   }
 
@@ -594,10 +675,13 @@ public final class Constants {
 
 
   /**
-   * Corresponds to account id used when running in local mode.
-   * NOTE: value should be in sync with the one used by UI.
+   * Default namespace to be used by v2 APIs
    */
-  public static final String DEVELOPER_ACCOUNT_ID = "developer";
+  public static final String DEFAULT_NAMESPACE = "default";
+  /**
+   * 'system' reserved namespace name
+   */
+  public static final String SYSTEM_NAMESPACE = "system";
 
   /**
    * Constants related to external systems.

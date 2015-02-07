@@ -17,8 +17,8 @@
 package co.cask.cdap.cli.util;
 
 import co.cask.cdap.api.common.Bytes;
+import co.cask.cdap.cli.CLIConfig;
 import co.cask.cdap.cli.exception.CommandInputError;
-import co.cask.common.cli.Command;
 import com.google.common.base.Joiner;
 import com.google.common.base.Splitter;
 
@@ -29,11 +29,14 @@ import java.util.concurrent.TimeUnit;
 /**
  *
  */
-public abstract class AbstractCommand implements Command {
+public abstract class AbstractCommand extends AbstractAuthCommand {
   private static final int DEFAULT_MAX_BODY_SIZE = 256;
   private static final int DEFAULT_LINE_WRAP_LIMIT = 64;
   private static final String DEFAULT_LINE_SEPARATOR = System.getProperty("line.separator");
 
+  public AbstractCommand(CLIConfig cliConfig) {
+    super(cliConfig);
+  }
 
   /**
    * Creates a string representing the body in the output. It only prints up to {@link #DEFAULT_MAX_BODY_SIZE},

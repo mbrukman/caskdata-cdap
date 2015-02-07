@@ -1,5 +1,5 @@
 /*
- * Copyright © 2014 Cask Data, Inc.
+ * Copyright © 2014-2015 Cask Data, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not
  * use this file except in compliance with the License. You may obtain a copy of
@@ -21,11 +21,17 @@ import co.cask.cdap.api.data.stream.StreamSpecification;
 import co.cask.cdap.api.dataset.DataSetException;
 import co.cask.cdap.api.dataset.DatasetSpecification;
 import co.cask.cdap.api.flow.FlowSpecification;
+import co.cask.cdap.api.schedule.SchedulableProgramType;
+import co.cask.cdap.api.schedule.ScheduleSpecification;
+import co.cask.cdap.api.workflow.ScheduleProgramInfo;
+import co.cask.cdap.api.workflow.WorkflowSpecification;
 import co.cask.cdap.app.ApplicationSpecification;
 import co.cask.cdap.app.verification.Verifier;
 import co.cask.cdap.app.verification.VerifyResult;
 import co.cask.cdap.data.dataset.DatasetCreationSpec;
 import co.cask.cdap.data2.dataset2.DatasetFramework;
+import co.cask.cdap.internal.app.runtime.adapter.AdapterService;
+import co.cask.cdap.internal.app.runtime.adapter.AdapterTypeInfo;
 import co.cask.cdap.internal.app.verification.ApplicationVerification;
 import co.cask.cdap.internal.app.verification.DatasetCreationSpecVerifier;
 import co.cask.cdap.internal.app.verification.FlowVerification;
@@ -38,6 +44,7 @@ import com.google.common.collect.Iterables;
 import com.google.common.collect.Maps;
 import com.google.common.reflect.TypeToken;
 
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -50,10 +57,12 @@ public class VerificationStage extends AbstractStage<ApplicationDeployable> {
 
   private final Map<Class<?>, Verifier<?>> verifiers = Maps.newIdentityHashMap();
   private final DatasetFramework dsFramework;
+  private final AdapterService adapterService;
 
-  public VerificationStage(DatasetFramework dsFramework) {
+  public VerificationStage(DatasetFramework dsFramework, AdapterService adapterService) {
     super(TypeToken.of(ApplicationDeployable.class));
     this.dsFramework = dsFramework;
+    this.adapterService = adapterService;
   }
 
   /**
@@ -68,6 +77,14 @@ public class VerificationStage extends AbstractStage<ApplicationDeployable> {
 
     ApplicationSpecification specification = input.getSpecification();
     Id.Application appId = input.getId();
+
+    if (ApplicationDeployScope.USER.equals(input.getApplicationDeployScope())) {
+      AdapterTypeInfo adapterTypeInfo = adapterService.getAdapterTypeInfo(appId.getId());
+      if (adapterTypeInfo != null) {
+        throw new RuntimeException
+          (String.format("Cannot deploy Application %s. An AdapterType exists with a conflicting name.", appId));
+      }
+    }
 
     VerifyResult result = getVerifier(ApplicationSpecification.class).verify(appId, specification);
     if (!result.isSuccess()) {
@@ -107,6 +124,47 @@ public class VerificationStage extends AbstractStage<ApplicationDeployable> {
       result = getVerifier(programSpec.getClass()).verify(appId, programSpec);
       if (!result.isSuccess()) {
         throw new RuntimeException(result.getMessage());
+      }
+    }
+
+    for (Map.Entry<String, WorkflowSpecification> entry : specification.getWorkflows().entrySet()) {
+      List<ScheduleProgramInfo> programs = entry.getValue().getActions();
+      for (ScheduleProgramInfo program : programs) {
+        switch (program.getProgramType()) {
+          case MAPREDUCE:
+            if (!specification.getMapReduce().containsKey(program.getProgramName())) {
+              throw new RuntimeException(String.format("MapReduce program '%s' is not configured with the Application.",
+                                                       program.getProgramName()));
+            }
+            break;
+          case SPARK:
+            if (!specification.getSpark().containsKey(program.getProgramName())) {
+              throw new RuntimeException(String.format("Spark program '%s' is not configured with the Application.",
+                                                       program.getProgramName()));
+            }
+            break;
+          case CUSTOM_ACTION:
+            // no-op
+            break;
+          default:
+            throw new RuntimeException(String.format("Unknown Program '%s' in the Workflow.",
+                                                     program.getProgramName()));
+        }
+      }
+    }
+
+    for (Map.Entry<String, ScheduleSpecification> entry : specification.getSchedules().entrySet()) {
+      ScheduleProgramInfo program = entry.getValue().getProgram();
+      switch (program.getProgramType()) {
+        case WORKFLOW:
+          if (!specification.getWorkflows().containsKey(program.getProgramName())) {
+            throw new RuntimeException(String.format("Workflow '%s' is not configured with the Application.",
+                                                     program.getProgramName()));
+          }
+          break;
+        default:
+          throw new RuntimeException(String.format("Program '%s' with Program Type '%s' cannot be scheduled.",
+                                                   program.getProgramName(), program.getProgramType()));
       }
     }
 

@@ -1,5 +1,5 @@
 /*
- * Copyright © 2014 Cask Data, Inc.
+ * Copyright © 2014-2015 Cask Data, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not
  * use this file except in compliance with the License. You may obtain a copy of
@@ -25,7 +25,6 @@ import co.cask.cdap.app.runtime.ProgramController;
 import co.cask.cdap.app.runtime.ProgramRunner;
 import co.cask.cdap.common.discovery.EndpointStrategy;
 import co.cask.cdap.common.discovery.RandomEndpointStrategy;
-import co.cask.cdap.common.discovery.TimeLimitEndpointStrategy;
 import co.cask.cdap.common.queue.QueueName;
 import co.cask.cdap.common.stream.StreamEventCodec;
 import co.cask.cdap.data2.queue.QueueClientFactory;
@@ -115,7 +114,7 @@ public class FlowTest {
                                                     getInstance(DiscoveryServiceClient.class);
     Discoverable discoverable = discoveryServiceClient.discover(
       String.format("procedure.%s.%s.%s",
-                    DefaultId.ACCOUNT.getId(), "ArgumentCheckApp", "SimpleProcedure")).iterator().next();
+                    DefaultId.NAMESPACE.getId(), "ArgumentCheckApp", "SimpleProcedure")).iterator().next();
 
     URL url = new URL(String.format("http://%s:%d/apps/%s/procedures/%s/methods/%s",
                                     discoverable.getSocketAddress().getHostName(),
@@ -180,12 +179,11 @@ public class FlowTest {
     DiscoveryServiceClient discoveryServiceClient = AppFabricTestHelper.getInjector().
       getInstance(DiscoveryServiceClient.class);
     ServiceDiscovered procedureDiscovered = discoveryServiceClient.discover(
-      String.format("procedure.%s.%s.%s", DefaultId.ACCOUNT.getId(), "WordCountApp", "WordFrequency"));
-    EndpointStrategy endpointStrategy = new TimeLimitEndpointStrategy(new RandomEndpointStrategy(procedureDiscovered),
-                                                                      2L, TimeUnit.SECONDS);
+      String.format("procedure.%s.%s.%s", DefaultId.NAMESPACE.getId(), "WordCountApp", "WordFrequency"));
+    EndpointStrategy endpointStrategy = new RandomEndpointStrategy(procedureDiscovered);
     int trials = 0;
     while (trials++ < 10) {
-      Discoverable discoverable = endpointStrategy.pick();
+      Discoverable discoverable = endpointStrategy.pick(2, TimeUnit.SECONDS);
       URL url = new URL(String.format("http://%s:%d/apps/%s/procedures/%s/methods/%s",
                                       discoverable.getSocketAddress().getHostName(),
                                       discoverable.getSocketAddress().getPort(),

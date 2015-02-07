@@ -23,15 +23,28 @@ import co.cask.cdap.common.conf.Constants;
 import co.cask.cdap.common.runtime.RuntimeModule;
 import co.cask.cdap.common.twill.MasterServiceManager;
 import co.cask.cdap.common.utils.Networks;
+import co.cask.cdap.config.guice.ConfigStoreModule;
 import co.cask.cdap.data.stream.StreamServiceManager;
+import co.cask.cdap.data.stream.service.StreamFetchHandler;
+import co.cask.cdap.data.stream.service.StreamHandler;
 import co.cask.cdap.data2.datafabric.dataset.DatasetExecutorServiceManager;
 import co.cask.cdap.explore.service.ExploreServiceManager;
 import co.cask.cdap.gateway.handlers.AppFabricHttpHandler;
+import co.cask.cdap.gateway.handlers.AppLifecycleHttpHandler;
+import co.cask.cdap.gateway.handlers.CommonHandlers;
+import co.cask.cdap.gateway.handlers.ConsoleSettingsHttpHandler;
+import co.cask.cdap.gateway.handlers.DashboardHttpHandler;
 import co.cask.cdap.gateway.handlers.MonitorHandler;
-import co.cask.cdap.gateway.handlers.PingHandler;
+import co.cask.cdap.gateway.handlers.NamespaceHttpHandler;
+import co.cask.cdap.gateway.handlers.NotificationFeedHttpHandler;
+import co.cask.cdap.gateway.handlers.PreferencesHttpHandler;
+import co.cask.cdap.gateway.handlers.ProgramLifecycleHttpHandler;
 import co.cask.cdap.gateway.handlers.ServiceHttpHandler;
+import co.cask.cdap.gateway.handlers.VersionHandler;
 import co.cask.cdap.internal.app.deploy.LocalManager;
 import co.cask.cdap.internal.app.deploy.pipeline.ApplicationWithPrograms;
+import co.cask.cdap.internal.app.deploy.pipeline.DeploymentInfo;
+import co.cask.cdap.internal.app.runtime.adapter.AdapterService;
 import co.cask.cdap.internal.app.runtime.batch.InMemoryTransactionServiceManager;
 import co.cask.cdap.internal.app.runtime.distributed.TransactionServiceManager;
 import co.cask.cdap.internal.app.runtime.schedule.DataSetBasedScheduleStore;
@@ -56,6 +69,7 @@ import co.cask.cdap.pipeline.PipelineFactory;
 import co.cask.http.HttpHandler;
 import com.google.common.base.Supplier;
 import com.google.common.base.Throwables;
+import com.google.common.collect.ImmutableList;
 import com.google.inject.AbstractModule;
 import com.google.inject.Module;
 import com.google.inject.Provides;
@@ -67,7 +81,6 @@ import com.google.inject.multibindings.Multibinder;
 import com.google.inject.name.Named;
 import com.google.inject.name.Names;
 import com.google.inject.util.Modules;
-import org.apache.twill.filesystem.Location;
 import org.quartz.SchedulerException;
 import org.quartz.core.JobRunShellFactory;
 import org.quartz.core.QuartzScheduler;
@@ -82,6 +95,7 @@ import org.quartz.spi.JobStore;
 
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
+import java.util.List;
 
 /**
  * AppFabric Service Runtime Module.
@@ -90,7 +104,8 @@ public final class AppFabricServiceRuntimeModule extends RuntimeModule {
 
   @Override
   public Module getInMemoryModules() {
-    return Modules.combine(new AppFabricServiceModule(),
+    return Modules.combine(new AppFabricServiceModule(StreamHandler.class, StreamFetchHandler.class),
+                           new ConfigStoreModule().getInMemoryModule(),
                            new AbstractModule() {
                              @Override
                              protected void configure() {
@@ -115,6 +130,18 @@ public final class AppFabricServiceRuntimeModule extends RuntimeModule {
                                         .to(InMemoryDatasetExecutorServiceManager.class);
                                mapBinder.addBinding(Constants.Service.EXPLORE_HTTP_USER_SERVICE)
                                         .to(InMemoryExploreServiceManager.class);
+
+                               Multibinder<String> servicesNamesBinder =
+                                 Multibinder.newSetBinder(binder(), String.class,
+                                                          Names.named("appfabric.services.names"));
+                               servicesNamesBinder.addBinding().toInstance(Constants.Service.APP_FABRIC_HTTP);
+                               servicesNamesBinder.addBinding().toInstance(Constants.Service.STREAMS);
+
+                               Multibinder<String> handlerHookNamesBinder =
+                                 Multibinder.newSetBinder(binder(), String.class,
+                                                          Names.named("appfabric.handler.hooks"));
+                               handlerHookNamesBinder.addBinding().toInstance(Constants.Service.APP_FABRIC_HTTP);
+                               handlerHookNamesBinder.addBinding().toInstance(Constants.Stream.STREAM_HANDLER);
                              }
                            });
   }
@@ -122,7 +149,8 @@ public final class AppFabricServiceRuntimeModule extends RuntimeModule {
   @Override
   public Module getStandaloneModules() {
 
-    return Modules.combine(new AppFabricServiceModule(),
+    return Modules.combine(new AppFabricServiceModule(StreamHandler.class, StreamFetchHandler.class),
+                           new ConfigStoreModule().getStandaloneModule(),
                            new AbstractModule() {
                              @Override
                              protected void configure() {
@@ -147,6 +175,18 @@ public final class AppFabricServiceRuntimeModule extends RuntimeModule {
                                         .to(InMemoryDatasetExecutorServiceManager.class);
                                mapBinder.addBinding(Constants.Service.EXPLORE_HTTP_USER_SERVICE)
                                         .to(InMemoryExploreServiceManager.class);
+
+                               Multibinder<String> servicesNamesBinder =
+                                 Multibinder.newSetBinder(binder(), String.class,
+                                                          Names.named("appfabric.services.names"));
+                               servicesNamesBinder.addBinding().toInstance(Constants.Service.APP_FABRIC_HTTP);
+                               servicesNamesBinder.addBinding().toInstance(Constants.Service.STREAMS);
+
+                               Multibinder<String> handlerHookNamesBinder =
+                                 Multibinder.newSetBinder(binder(), String.class,
+                                                          Names.named("appfabric.handler.hooks"));
+                               handlerHookNamesBinder.addBinding().toInstance(Constants.Service.APP_FABRIC_HTTP);
+                               handlerHookNamesBinder.addBinding().toInstance(Constants.Stream.STREAM_HANDLER);
                              }
                            });
   }
@@ -154,8 +194,8 @@ public final class AppFabricServiceRuntimeModule extends RuntimeModule {
   @Override
   public Module getDistributedModules() {
 
-
     return Modules.combine(new AppFabricServiceModule(),
+                           new ConfigStoreModule().getDistributedModule(),
                            new AbstractModule() {
                              @Override
                              protected void configure() {
@@ -180,6 +220,16 @@ public final class AppFabricServiceRuntimeModule extends RuntimeModule {
                                         .to(DatasetExecutorServiceManager.class);
                                mapBinder.addBinding(Constants.Service.EXPLORE_HTTP_USER_SERVICE)
                                         .to(ExploreServiceManager.class);
+
+                               Multibinder<String> servicesNamesBinder =
+                                 Multibinder.newSetBinder(binder(), String.class,
+                                                          Names.named("appfabric.services.names"));
+                               servicesNamesBinder.addBinding().toInstance(Constants.Service.APP_FABRIC_HTTP);
+
+                               Multibinder<String> handlerHookNamesBinder =
+                                 Multibinder.newSetBinder(binder(), String.class,
+                                                          Names.named("appfabric.handler.hooks"));
+                               handlerHookNamesBinder.addBinding().toInstance(Constants.Service.APP_FABRIC_HTTP);
                              }
                            });
   }
@@ -189,25 +239,44 @@ public final class AppFabricServiceRuntimeModule extends RuntimeModule {
    */
   private static final class AppFabricServiceModule extends AbstractModule {
 
+    private final List<Class<? extends HttpHandler>> handlerClasses;
+
+    private AppFabricServiceModule(Class<? extends HttpHandler>... handlerClasses) {
+      this.handlerClasses = ImmutableList.copyOf(handlerClasses);
+    }
+
     @Override
     protected void configure() {
       bind(PipelineFactory.class).to(SynchronousPipelineFactory.class);
 
       install(
         new FactoryModuleBuilder()
-          .implement(new TypeLiteral<Manager<Location, ApplicationWithPrograms>>() { },
-                     new TypeLiteral<LocalManager<Location, ApplicationWithPrograms>>() { })
-          .build(new TypeLiteral<ManagerFactory<Location, ApplicationWithPrograms>>() { })
+          .implement(new TypeLiteral<Manager<DeploymentInfo, ApplicationWithPrograms>>() { },
+                     new TypeLiteral<LocalManager<DeploymentInfo, ApplicationWithPrograms>>() { })
+          .build(new TypeLiteral<ManagerFactory<DeploymentInfo, ApplicationWithPrograms>>() { })
       );
 
       bind(StoreFactory.class).to(DefaultStoreFactory.class);
+      bind(AdapterService.class).in(Scopes.SINGLETON);
 
       Multibinder<HttpHandler> handlerBinder = Multibinder.newSetBinder(binder(), HttpHandler.class,
                                                                         Names.named("appfabric.http.handler"));
+      CommonHandlers.add(handlerBinder);
       handlerBinder.addBinding().to(AppFabricHttpHandler.class);
-      handlerBinder.addBinding().to(PingHandler.class);
+      handlerBinder.addBinding().to(VersionHandler.class);
       handlerBinder.addBinding().to(MonitorHandler.class);
       handlerBinder.addBinding().to(ServiceHttpHandler.class);
+      handlerBinder.addBinding().to(NamespaceHttpHandler.class);
+      handlerBinder.addBinding().to(NotificationFeedHttpHandler.class);
+      handlerBinder.addBinding().to(AppLifecycleHttpHandler.class);
+      handlerBinder.addBinding().to(DashboardHttpHandler.class);
+      handlerBinder.addBinding().to(ProgramLifecycleHttpHandler.class);
+      handlerBinder.addBinding().to(PreferencesHttpHandler.class);
+      handlerBinder.addBinding().to(ConsoleSettingsHttpHandler.class);
+
+      for (Class<? extends HttpHandler> handlerClass : handlerClasses) {
+        handlerBinder.addBinding().to(handlerClass);
+      }
     }
 
     @Provides

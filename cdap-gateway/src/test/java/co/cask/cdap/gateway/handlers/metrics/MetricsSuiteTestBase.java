@@ -15,13 +15,13 @@
  */
 package co.cask.cdap.gateway.handlers.metrics;
 
+import co.cask.cdap.app.metrics.MapReduceMetrics;
 import co.cask.cdap.app.store.Store;
 import co.cask.cdap.app.store.StoreFactory;
 import co.cask.cdap.common.conf.CConfiguration;
 import co.cask.cdap.common.conf.Constants;
 import co.cask.cdap.common.discovery.EndpointStrategy;
 import co.cask.cdap.common.discovery.RandomEndpointStrategy;
-import co.cask.cdap.common.discovery.TimeLimitEndpointStrategy;
 import co.cask.cdap.common.guice.ConfigModule;
 import co.cask.cdap.common.guice.DiscoveryRuntimeModule;
 import co.cask.cdap.common.guice.LocationRuntimeModule;
@@ -29,18 +29,20 @@ import co.cask.cdap.common.metrics.MetricsCollectionService;
 import co.cask.cdap.data.runtime.DataFabricModules;
 import co.cask.cdap.data.runtime.DataSetServiceModules;
 import co.cask.cdap.data.runtime.DataSetsModules;
-import co.cask.cdap.data2.OperationException;
 import co.cask.cdap.data2.datafabric.dataset.service.DatasetService;
 import co.cask.cdap.data2.datafabric.dataset.service.executor.DatasetOpExecutor;
 import co.cask.cdap.explore.guice.ExploreClientModule;
 import co.cask.cdap.gateway.MockMetricsCollectionService;
 import co.cask.cdap.gateway.auth.AuthModule;
 import co.cask.cdap.gateway.handlers.log.MockLogReader;
+import co.cask.cdap.internal.app.program.TypeId;
 import co.cask.cdap.logging.read.LogReader;
 import co.cask.cdap.metrics.guice.MetricsClientRuntimeModule;
 import co.cask.cdap.metrics.query.MetricsQueryService;
+import co.cask.cdap.proto.ProgramType;
 import co.cask.cdap.test.internal.guice.AppFabricTestModule;
 import co.cask.tephra.TransactionManager;
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
@@ -61,6 +63,7 @@ import org.apache.http.impl.client.DefaultHttpClient;
 import org.apache.http.message.BasicHeader;
 import org.apache.twill.discovery.DiscoveryServiceClient;
 import org.apache.twill.filesystem.LocationFactory;
+import org.junit.After;
 import org.junit.AfterClass;
 import org.junit.BeforeClass;
 import org.junit.rules.TemporaryFolder;
@@ -74,6 +77,7 @@ import java.util.Deque;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
+import javax.annotation.Nullable;
 
 /**
  * Provides base test class for MetricsServiceTestsSuite.
@@ -141,14 +145,19 @@ public abstract class MetricsSuiteTestBase {
     stopMetricsService(conf);
     try {
       stop();
-    } catch (OperationException e) {
+    } catch (Exception e) {
       e.printStackTrace();
     } finally {
       tmpFolder.delete();
     }
   }
 
-  public static void initialize() throws IOException, OperationException {
+  @After
+  public void after() throws Exception {
+    doDelete("/v2/metrics/");
+  }
+
+  public static void initialize() throws IOException {
     CConfiguration cConf = CConfiguration.create();
 
     // use this injector instead of the one in startMetricsService because that one uses a
@@ -175,7 +184,7 @@ public abstract class MetricsSuiteTestBase {
     setupMeta();
   }
 
-  public static void stop() throws OperationException {
+  public static void stop() {
     collectionService.stopAndWait();
 
     Deque<File> files = Lists.newLinkedList();
@@ -235,10 +244,9 @@ public abstract class MetricsSuiteTestBase {
     // initialize the dataset instantiator
     DiscoveryServiceClient discoveryClient = injector.getInstance(DiscoveryServiceClient.class);
 
-    EndpointStrategy metricsEndPoints = new TimeLimitEndpointStrategy(
-      new RandomEndpointStrategy(discoveryClient.discover(Constants.Service.METRICS)), 1L, TimeUnit.SECONDS);
+    EndpointStrategy metricsEndPoints = new RandomEndpointStrategy(discoveryClient.discover(Constants.Service.METRICS));
 
-    port = metricsEndPoints.pick().getSocketAddress().getPort();
+    port = metricsEndPoints.pick(1L, TimeUnit.SECONDS).getSocketAddress().getPort();
 
     return injector;
   }
@@ -252,7 +260,7 @@ public abstract class MetricsSuiteTestBase {
   }
 
   // write WordCount app to metadata store
-  public static void setupMeta() throws OperationException {
+  public static void setupMeta() {
     validResources = ImmutableList.of(
       "/system/reads?aggregate=true",
       "/system/apps/WordCount/reads?aggregate=true",
@@ -371,5 +379,110 @@ public abstract class MetricsSuiteTestBase {
     HttpDelete delete = new HttpDelete(MetricsSuiteTestBase.getEndPoint(resource));
     delete.setHeader(AUTH_HEADER);
     return client.execute(delete);
+  }
+
+  /**
+   * Given a non-versioned API path, returns its corresponding versioned API path.
+   *
+   * @param nonVersionedApiPath API path without version
+   * @param version the requested API version. Optional - defaults to v2.
+   * @param namespace the requested namespace id. Optional - defaults to null/no namespace.
+   * @return
+   */
+  public static String getVersionedAPIPath(String nonVersionedApiPath, @Nullable String version,
+                                           @Nullable String namespace) {
+    StringBuilder versionedApiBuilder = new StringBuilder("/");
+    // if not specified, treat v2 as the version, so existing tests do not need any updates.
+    if (version == null) {
+      version = Constants.Gateway.API_VERSION_2_TOKEN;
+    }
+
+    if (Constants.Gateway.API_VERSION_2_TOKEN.equals(version)) {
+      Preconditions.checkArgument(namespace == null,
+                                  String.format("Cannot specify namespace for v2 APIs. Namespace will default to '%s'" +
+                                                  " for all v2 APIs.", Constants.DEFAULT_NAMESPACE));
+      versionedApiBuilder.append(version).append("/");
+    } else if (Constants.Gateway.API_VERSION_3_TOKEN.equals(version)) {
+      Preconditions.checkNotNull(namespace, "Namespace cannot be null for v3 APIs.");
+      versionedApiBuilder.append(version).append("/namespaces/").append(namespace).append("/");
+    } else {
+      throw new IllegalArgumentException(String.format("Unsupported version '%s'. Only v2 and v3 are supported.",
+                                                       version));
+    }
+    versionedApiBuilder.append(nonVersionedApiPath);
+    return versionedApiBuilder.toString();
+  }
+
+  // Convenience methods to create metrics context in tests
+
+  protected static Map<String, String> getFlowletContext(String namespaceId, String appName, String flowName,
+                                                         String flowletName) {
+    return ImmutableMap.of(Constants.Metrics.Tag.NAMESPACE, namespaceId,
+                           Constants.Metrics.Tag.APP, appName,
+                           Constants.Metrics.Tag.PROGRAM_TYPE, TypeId.getMetricContextId(ProgramType.FLOW),
+                           Constants.Metrics.Tag.PROGRAM, flowName,
+                           Constants.Metrics.Tag.FLOWLET, flowletName);
+  }
+
+  protected static Map<String, String> getFlowletQueueContext(String namespaceId, String appName, String flowName,
+                                                              String flowletName, String queueName) {
+    return ImmutableMap.<String, String>builder()
+      .put(Constants.Metrics.Tag.NAMESPACE, namespaceId)
+      .put(Constants.Metrics.Tag.APP, appName)
+      .put(Constants.Metrics.Tag.PROGRAM_TYPE, TypeId.getMetricContextId(ProgramType.FLOW))
+      .put(Constants.Metrics.Tag.PROGRAM, flowName)
+      .put(Constants.Metrics.Tag.FLOWLET, flowletName)
+      .put(Constants.Metrics.Tag.FLOWLET_QUEUE, queueName)
+      .build();
+  }
+
+  protected static Map<String, String> getStreamHandlerContext(String streamName, String instanceId) {
+    return ImmutableMap.of(Constants.Metrics.Tag.NAMESPACE, Constants.SYSTEM_NAMESPACE,
+                           Constants.Metrics.Tag.COMPONENT, Constants.Gateway.METRICS_CONTEXT,
+                           Constants.Metrics.Tag.HANDLER, Constants.Gateway.STREAM_HANDLER_NAME,
+                           Constants.Metrics.Tag.INSTANCE_ID, instanceId,
+                           Constants.Metrics.Tag.STREAM, streamName);
+  }
+
+  protected static Map<String, String> getProcedureContext(String namespaceId, String appName, String procedureName) {
+    return ImmutableMap.of(Constants.Metrics.Tag.NAMESPACE, namespaceId,
+                           Constants.Metrics.Tag.APP, appName,
+                           Constants.Metrics.Tag.PROGRAM_TYPE, TypeId.getMetricContextId(ProgramType.PROCEDURE),
+                           Constants.Metrics.Tag.PROGRAM, procedureName);
+  }
+
+  protected static Map<String, String> getUserServiceContext(String namespaceId, String appName, String serviceName,
+                                                             String runnableName) {
+    return ImmutableMap.of(Constants.Metrics.Tag.NAMESPACE, namespaceId,
+                           Constants.Metrics.Tag.APP, appName,
+                           Constants.Metrics.Tag.PROGRAM_TYPE, TypeId.getMetricContextId(ProgramType.SERVICE),
+                           Constants.Metrics.Tag.PROGRAM, serviceName,
+                           Constants.Metrics.Tag.SERVICE_RUNNABLE, runnableName);
+  }
+
+  protected static Map<String, String> getUserServiceContext(String namespaceId, String appName, String serviceName,
+                                                             String runnableName, String runId) {
+    return ImmutableMap.<String, String>builder()
+      .put(Constants.Metrics.Tag.NAMESPACE, namespaceId)
+      .put(Constants.Metrics.Tag.APP, appName)
+      .put(Constants.Metrics.Tag.PROGRAM_TYPE, TypeId.getMetricContextId(ProgramType.SERVICE))
+      .put(Constants.Metrics.Tag.PROGRAM, serviceName)
+      .put(Constants.Metrics.Tag.SERVICE_RUNNABLE, runnableName)
+      .put(Constants.Metrics.Tag.RUN_ID, runId)
+      .build();
+  }
+
+  protected static Map<String, String> getMapReduceTaskContext(String namespaceId, String appName, String jobName,
+                                                               MapReduceMetrics.TaskType type,
+                                                               String runId, String instanceId) {
+    return ImmutableMap.<String, String>builder()
+      .put(Constants.Metrics.Tag.NAMESPACE, namespaceId)
+      .put(Constants.Metrics.Tag.APP, appName)
+      .put(Constants.Metrics.Tag.PROGRAM_TYPE, TypeId.getMetricContextId(ProgramType.MAPREDUCE))
+      .put(Constants.Metrics.Tag.PROGRAM, jobName)
+      .put(Constants.Metrics.Tag.MR_TASK_TYPE, type.getId())
+      .put(Constants.Metrics.Tag.RUN_ID, runId)
+      .put(Constants.Metrics.Tag.INSTANCE_ID, instanceId)
+      .build();
   }
 }

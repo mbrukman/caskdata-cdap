@@ -1,5 +1,5 @@
 /*
- * Copyright © 2014 Cask Data, Inc.
+ * Copyright © 2014-2015 Cask Data, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not
  * use this file except in compliance with the License. You may obtain a copy of
@@ -25,6 +25,7 @@ import co.cask.cdap.app.runtime.ProgramController;
 import co.cask.cdap.app.runtime.ProgramOptions;
 import co.cask.cdap.app.runtime.ProgramRunner;
 import co.cask.cdap.common.conf.CConfiguration;
+import co.cask.cdap.common.conf.Constants;
 import co.cask.cdap.common.lang.InstantiatorFactory;
 import co.cask.cdap.common.lang.PropertyFieldSetter;
 import co.cask.cdap.common.logging.LoggingContextAccessor;
@@ -34,6 +35,7 @@ import co.cask.cdap.common.metrics.MetricsCollectionService;
 import co.cask.cdap.data2.dataset2.DatasetFramework;
 import co.cask.cdap.data2.transaction.stream.StreamAdmin;
 import co.cask.cdap.internal.app.runtime.DataSetFieldSetter;
+import co.cask.cdap.internal.app.runtime.MetricsFieldSetter;
 import co.cask.cdap.internal.app.runtime.ProgramOptionConstants;
 import co.cask.cdap.internal.lang.Reflections;
 import co.cask.cdap.proto.ProgramType;
@@ -41,9 +43,11 @@ import co.cask.tephra.TransactionSystemClient;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Throwables;
 import com.google.common.reflect.TypeToken;
+import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.Service;
 import com.google.inject.Inject;
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.twill.api.RunId;
 import org.apache.twill.discovery.DiscoveryServiceClient;
 import org.apache.twill.filesystem.LocationFactory;
@@ -51,6 +55,8 @@ import org.apache.twill.internal.RunIds;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.IOException;
+import java.security.PrivilegedExceptionAction;
 import javax.annotation.Nullable;
 
 /**
@@ -97,7 +103,7 @@ public class MapReduceProgramRunner implements ProgramRunner {
   @Override
   public ProgramController run(Program program, ProgramOptions options) {
     // Extract and verify parameters
-    ApplicationSpecification appSpec = program.getSpecification();
+    ApplicationSpecification appSpec = program.getApplicationSpecification();
     Preconditions.checkNotNull(appSpec, "Missing application specification.");
 
     ProgramType processorType = program.getType();
@@ -128,8 +134,8 @@ public class MapReduceProgramRunner implements ProgramRunner {
     }
 
     final BasicMapReduceContext context =
-      new BasicMapReduceContext(program, null, runId, options.getUserArguments(),
-                                program.getSpecification().getDatasets().keySet(), spec,
+      new BasicMapReduceContext(program, null, runId, null, options.getUserArguments(),
+                                program.getApplicationSpecification().getDatasets().keySet(), spec,
                                 logicalStartTime,
                                 workflowBatch, discoveryServiceClient, metricsCollectionService,
                                 datasetFramework, cConf);
@@ -137,18 +143,40 @@ public class MapReduceProgramRunner implements ProgramRunner {
 
     Reflections.visit(mapReduce, TypeToken.of(mapReduce.getClass()),
                       new PropertyFieldSetter(context.getSpecification().getProperties()),
+                      new MetricsFieldSetter(context.getMetrics()),
                       new DataSetFieldSetter(context));
 
     // note: this sets logging context on the thread level
     LoggingContextAccessor.setLoggingContext(context.getLoggingContext());
 
-    Service mapReduceRuntimeService = new MapReduceRuntimeService(cConf, hConf, mapReduce, spec, context,
-                                                                  program.getJarLocation(), locationFactory,
-                                                                  streamAdmin, txSystemClient);
+    final Service mapReduceRuntimeService = new MapReduceRuntimeService(cConf, hConf, mapReduce, spec, context,
+                                                                        program.getJarLocation(), locationFactory,
+                                                                        streamAdmin, txSystemClient, datasetFramework);
     ProgramController controller = new MapReduceProgramController(mapReduceRuntimeService, context);
 
     LOG.info("Starting MapReduce Job: {}", context.toString());
-    mapReduceRuntimeService.start();
+    // if security is not enabled, start the job as the user we're using to access hdfs with.
+    // if this is not done, the mapred job will be launched as the user that runs the program
+    // runner, which is probably the yarn user. This may cause permissions issues if the program
+    // tries to access cdap data. For example, writing to a FileSet will fail, as the yarn user will
+    // be running the job, but the data directory will be owned by cdap.
+    if (!UserGroupInformation.isSecurityEnabled()) {
+      String runAs = cConf.get(Constants.CFG_HDFS_USER);
+      try {
+        UserGroupInformation.createRemoteUser(runAs)
+          .doAs(new PrivilegedExceptionAction<ListenableFuture<Service.State>>() {
+            @Override
+            public ListenableFuture<Service.State> run() throws Exception {
+              return mapReduceRuntimeService.start();
+            }
+          });
+      } catch (Exception e) {
+        LOG.error("Exception running mapreduce job as user {}.", runAs, e);
+        throw Throwables.propagate(e);
+      }
+    } else {
+      mapReduceRuntimeService.start();
+    }
     return controller;
   }
 }

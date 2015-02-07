@@ -1,8 +1,9 @@
 .. meta::
     :author: Cask Data, Inc 
     :description: Release notes for the Cask Data Application Platform
-    :copyright: Copyright © 2014 Cask Data, Inc.
+    :copyright: Copyright © 2014-2015 Cask Data, Inc.
 
+:hide-nav: true
 :orphan:
 
 .. _overview_release-notes:
@@ -22,12 +23,97 @@ Cask Data Application Platform Release Notes
    :backlinks: none
    :depth: 2
 
-Release 2.6.0
-=============
+
+`Release 2.7.0 <http://docs.cask.co/cdap/2.7.0/index.html>`__
+=============================================================
 
 API Changes
 -----------
--  API for specifying Services and MapReduce Jobs has been changed to use a "configurer" 
+-  The property ``security.auth.server.address`` has been deprecated and replaced with
+   ``security.auth.server.bind.address`` (`CDAP-639 <https://issues.cask.co/browse/CDAP-639>`__,
+   `CDAP-1078 <https://issues.cask.co/browse/CDAP-1078>`__).
+
+
+New Features
+------------
+
+- **Spark**
+
+  - Spark now uses a configurer-style API for specifying (`CDAP-382 <https://issues.cask.co/browse/CDAP-1134>`__).
+  - Spark can now run as a part of a Workflow (`CDAP-465 <https://issues.cask.co/browse/CDAP-465>`__).
+
+- **Security**
+
+  - CDAP Master now obtains and refreshes Kerberos tickets programmatically (`CDAP-1134 <https://issues.cask.co/browse/CDAP-1134>`__).
+
+- **Datasets**
+
+  - A new, experimental dataset type to support time-partitioned File sets has been added.
+  - Time-partitioned File sets can be queried with Impala on CDH distributions (`CDAP-926 <https://issues.cask.co/browse/CDAP-926>`__).
+  - Streams can be made queryable with Impala by deploying an adapter that periodically
+    converts it into partitions of a time-partitioned File set (`CDAP-1129 <https://issues.cask.co/browse/CDAP-1129>`__).
+  - Support for different levels of conflict detection: ``ROW``, ``COLUMN``, or ``NONE`` (`CDAP-1016 <https://issues.cask.co/browse/CDAP-1016>`__).
+  - Removed support for ``@DisableTransaction`` (`CDAP-1279 <https://issues.cask.co/browse/CDAP-1279>`__).
+  - Support for annotating a Stream with a schema (`CDAP-606 <https://issues.cask.co/browse/CDAP-606>`__).
+  - A new API for uploading entire files to a Stream has been added (`CDAP-411 <https://issues.cask.co/browse/CDAP-411>`__).
+
+- **Workflow**
+
+  - Workflow now uses a configurer-style API for specifying (`CDAP-1207 <https://issues.cask.co/browse/CDAP-1207>`__).
+  - Multiple instances of a Workflow can be run concurrently (`CDAP-513 <https://issues.cask.co/browse/CDAP-513>`__).
+  - Programs are no longer part of a Workflow; instead, they are added in the application
+    and are referenced by a Workflow using their names (`CDAP-1116 <https://issues.cask.co/browse/CDAP-1116>`__).
+  - Schedules are now at the application level and properties can be specified for
+    Schedules; these properties will be passed to the scheduled program as runtime
+    arguments (`CDAP-1148 <https://issues.cask.co/browse/CDAP-1148>`__).
+
+Known Issues
+------------
+- See also the *Known Issues* of `version 2.6.1. <#known-issues-261>`_
+- When upgrading an existing CDAP installation to 2.7.0, all metrics are reset.
+
+
+`Release 2.6.1 <http://docs.cask.co/cdap/2.6.1/index.html>`__
+=============================================================
+
+CDAP Bug Fixes
+--------------
+- Allow an *unchecked Dataset upgrade* upon application deployment
+  (`CDAP-1253 <https://issues.cask.co/browse/CDAP-1253>`__).
+- Update the Hive Dataset table when a Dataset is updated
+  (`CDAP-71 <https://issues.cask.co/browse/CDAP-71>`__).
+- Use Hadoop configuration files bundled with the Explore Service
+  (`CDAP-1250 <https://issues.cask.co/browse/CDAP-1250>`__).
+
+.. _known-issues-261:
+
+Known Issues
+------------
+- See also the *Known Issues* of `version 2.6.0. <#known-issues-260>`_
+
+- Typically, Datasets are bundled as part of Applications. When an Application is upgraded and redeployed,
+  any changes in Datasets will not be redeployed. This is because Datasets can be shared across applications,
+  and an incompatible schema change can break other applications that are using the Dataset.
+  A workaround (`CDAP-1253 <https://issues.cask.co/browse/CDAP-1253>`__) is to allow *unchecked Dataset upgrades*.
+  Upgrades cause the Dataset metadata, i.e. its specification including properties, to be updated. The Dataset
+  runtime code is also updated. To prevent data loss the existing data and the underlying HBase tables remain as-is.
+
+  You can allow *unchecked Dataset upgrades* by setting the configuration property ``dataset.unchecked.upgrade``
+  to ``true`` in ``cdap-site.xml``. This will ensure that Datasets are upgraded when the Application is redeployed.
+  When this configuration is set, the recommended process to deploy an upgraded Dataset is to first stop
+  all Applications that are using the Dataset before deploying the new version of the Application.
+  This lets all containers (Flows, Services, etc) to pick up the new Dataset changes.
+  When Datasets are upgraded using ``dataset.unchecked.upgrade``, no schema compatibility checks are performed by the
+  system. Hence it is very important that the developer verify the backward-compatibility, and makes sure that
+  other Applications that are using the Dataset can work with the new changes.
+
+
+`Release 2.6.0 <http://docs.cask.co/cdap/2.6.0/index.html>`__
+=============================================================
+
+API Changes
+-----------
+-  API for specifying Services and MapReduce programs has been changed to use a "configurer" 
    style; this will require modification of user classes implementing either MapReduce
    or Service as the interfaces have changed (`CDAP-335
    <https://issues.cask.co/browse/CDAP-335>`__).
@@ -48,7 +134,7 @@ New Features
 
 - **MapReduce**
 
-  -  MapReduce jobs can now read binary stream data
+  -  MapReduce programs can now read binary stream data
      (`CDAP-331 <https://issues.cask.co/browse/CDAP-331>`__).
 
 - **Datasets**
@@ -126,13 +212,29 @@ Known Issues
   the master log indicating that in-transit (emitted, but not yet processed) metrics
   system messages could not be decoded (*Failed to decode message to MetricsRecord*). This
   is because of a change in the format of emitted metrics, and can result in a small
-  amount of metrics data points being lost. (`CDAP-745
+  amount of metrics data points being lost (`CDAP-745
   <https://issues.cask.co/browse/CDAP-745>`__).
 - Writing to datasets through Hive is not supported in CDH4.x
   (`CDAP-988 <https://issues.cask.co/browse/CDAP-988>`__).
+- A race condition resulting in a deadlock can occur when a TwillRunnable container
+  shutdowns while it still has Zookeeper events to process. This occasionally surfaces when
+  running with OpenJDK or JDK7, though not with Oracle JDK6. It is caused by a change in the
+  ``ThreadPoolExecutor`` implementation between Oracle JDK6 and OpenJDK/JDK7. Until Twill is
+  updated in a future version of CDAP, a work-around is to kill the errant process. The Yarn
+  command to list all running applications and their ``app-id``\s is::
+  
+    yarn application -list -appStates RUNNING
 
-Release 2.5.2
-=============
+  The command to kill a process is::
+  
+    yarn application -kill <app-id>
+    
+  All versions of CDAP running Twill version 0.4.0 with this configuration can exhibit this
+  problem (`TWILL-110 <https://issues.apache.org/jira/browse/TWILL-110>`__).
+
+
+`Release 2.5.2 <http://docs.cask.co/cdap/2.5.2/index.html>`__
+=============================================================
 
 CDAP Bug Fixes
 --------------
@@ -175,10 +277,10 @@ Known Issues
   fail with a class loading error. Spark or Scala classes should not be used outside of the
   Spark program. (`CDAP-599 <https://issues.cask.co/browse/CDAP-599>`__)
 - See also the *Known Issues* of `version 2.5.0. <#known-issues-250>`_
+- See also the *TWILL-110 Known Issue* of `version 2.6.0. <#known-issues-260>`_
 
-
-Release 2.5.1
-=============
+`Release 2.5.1 <http://docs.cask.co/cdap/2.5.1/index.html>`__
+=============================================================
 
 CDAP Bug Fixes
 --------------
@@ -207,11 +309,12 @@ Other Changes
 
 Known Issues
 ------------
-See *Known Issues* of `the previous version. <#known-issues-250>`_
+- See *Known Issues* of `the previous version. <#known-issues-250>`_
+- See also the *TWILL-110 Known Issue* of `version 2.6.0. <#known-issues-260>`_
 
 
-Release 2.5.0
-=============
+`Release 2.5.0 <http://docs.cask.co/cdap/2.5.0/index.html>`__
+=============================================================
 
 New Features
 ------------
@@ -279,6 +382,7 @@ Major CDAP Bug Fixes
 
 Known Issues
 ------------
-- Metrics for MapReduce jobs aren't populated on secure Hadoop clusters
+- Metrics for MapReduce programs aren't populated on secure Hadoop clusters
 - The metric for the number of cores shown in the Resources view of the CDAP Console will be zero
   unless YARN has been configured to enable virtual cores
+- See also the *TWILL-110 Known Issue* of `version 2.6.0. <#known-issues-260>`_

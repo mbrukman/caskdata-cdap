@@ -1,5 +1,5 @@
 /*
- * Copyright © 2012-2014 Cask Data, Inc.
+ * Copyright © 2012-2015 Cask Data, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not
  * use this file except in compliance with the License. You may obtain a copy of
@@ -18,14 +18,17 @@ package co.cask.cdap.cli;
 
 import co.cask.cdap.cli.command.ConnectCommand;
 import co.cask.cdap.cli.command.HelpCommand;
+import co.cask.cdap.cli.command.SearchCommandsCommand;
+import co.cask.cdap.cli.commandset.DefaultCommands;
+import co.cask.cdap.cli.completer.supplier.EndpointSupplier;
 import co.cask.cdap.client.config.ClientConfig;
 import co.cask.cdap.common.conf.CConfiguration;
 import co.cask.common.cli.CLI;
 import co.cask.common.cli.Command;
+import co.cask.common.cli.CommandSet;
 import co.cask.common.cli.exception.CLIExceptionHandler;
 import co.cask.common.cli.exception.InvalidCommandException;
 import com.google.common.base.Joiner;
-import com.google.common.base.Objects;
 import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Iterables;
@@ -46,22 +49,11 @@ import javax.net.ssl.SSLHandshakeException;
  */
 public class CLIMain {
 
-  private final CLIConfig cliConfig;
-  private final HelpCommand helpCommand;
   private final CLI cli;
 
-  private final Iterable<Command> commands;
-  private final Map<String, Completer> completers;
+  private final Iterable<CommandSet<Command>> commands;
 
   public CLIMain(final CLIConfig cliConfig) throws URISyntaxException, IOException {
-    this.cliConfig = cliConfig;
-    this.helpCommand = new HelpCommand(new Supplier<Iterable<Command>>() {
-      @Override
-      public Iterable<Command> get() {
-        return getCommands();
-      }
-    }, cliConfig);
-
     Injector injector = Guice.createInjector(
       new AbstractModule() {
         @Override
@@ -74,16 +66,23 @@ public class CLIMain {
     );
 
     ConnectCommand connectCommand = injector.getInstance(ConnectCommand.class);
-    connectCommand.tryDefaultConnection(System.out, false);
+    if (!cliConfig.isHostnameProvided()) {
+      connectCommand.tryDefaultConnection(System.out, false);
+    }
 
-    this.commands = Iterables.concat(new DefaultCommands(injector).get(),
-                                     ImmutableList.<Command>of(helpCommand));
-    this.completers = new DefaultCompleters(injector).get();
-    this.cli = new CLI<Command>(commands, completers);
-    this.cli.getReader().setPrompt("cdap (" + cliConfig.getURI() + ")> ");
-    this.cli.setExceptionHandler(new CLIExceptionHandler<Exception>() {
+    this.commands = ImmutableList.of(
+      injector.getInstance(DefaultCommands.class),
+      new CommandSet<Command>(ImmutableList.<Command>of(
+        new HelpCommand(getCommandsSupplier(), cliConfig),
+        new SearchCommandsCommand(getCommandsSupplier(), cliConfig)
+      )));
+
+    Map<String, Completer> completers = injector.getInstance(DefaultCompleters.class).get();
+    cli = new CLI<Command>(Iterables.concat(commands), completers);
+    cli.getReader().setPrompt("cdap (" + cliConfig.getURI() + ")> ");
+    cli.setExceptionHandler(new CLIExceptionHandler<Exception>() {
       @Override
-      public void handleException(PrintStream output, Exception e) {
+      public boolean handleException(PrintStream output, Exception e, int timesRetried) {
         if (e instanceof SSLHandshakeException) {
           output.printf("To ignore this error, set -D%s=false when starting the CLI\n",
                         CLIConfig.PROP_VERIFY_SSL_CERT);
@@ -93,13 +92,16 @@ public class CLIMain {
         } else {
           output.println("Error: " + e.getMessage());
         }
+
+        return false;
       }
     });
+    cli.addCompleterSupplier(injector.getInstance(EndpointSupplier.class));
 
-    this.cliConfig.addHostnameChangeListener(new CLIConfig.ConnectionChangeListener() {
+    cliConfig.addHostnameChangeListener(new CLIConfig.ConnectionChangeListener() {
       @Override
-      public void onConnectionChanged(URI newURI) {
-        cli.getReader().setPrompt("cdap (" + newURI + ")> ");
+      public void onConnectionChanged(String newNamespace, URI newURI) {
+        cli.getReader().setPrompt("cdap (" + newURI + "//" + newNamespace + ")> ");
       }
     });
   }
@@ -108,12 +110,17 @@ public class CLIMain {
     return this.cli;
   }
 
-  private Iterable<Command> getCommands() {
-    return this.commands;
+  private Supplier<Iterable<CommandSet<Command>>> getCommandsSupplier() {
+    return new Supplier<Iterable<CommandSet<Command>>>() {
+      @Override
+      public Iterable<CommandSet<Command>> get() {
+        return commands;
+      }
+    };
   }
 
   public static void main(String[] args) throws Exception {
-    String hostname = Objects.firstNonNull(System.getenv(Constants.EV_HOSTNAME), "localhost");
+    String hostname = System.getenv(Constants.EV_HOSTNAME);
     PrintStream output = System.out;
 
     CLIConfig config = new CLIConfig(hostname);

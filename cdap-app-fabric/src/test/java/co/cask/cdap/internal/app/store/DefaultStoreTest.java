@@ -1,5 +1,5 @@
 /*
- * Copyright © 2014 Cask Data, Inc.
+ * Copyright © 2014-2015 Cask Data, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not
  * use this file except in compliance with the License. You may obtain a copy of
@@ -19,6 +19,7 @@ package co.cask.cdap.internal.app.store;
 import co.cask.cdap.AllProgramsApp;
 import co.cask.cdap.AppWithNoServices;
 import co.cask.cdap.AppWithServices;
+import co.cask.cdap.AppWithWorkflow;
 import co.cask.cdap.FlowMapReduceApp;
 import co.cask.cdap.NoProgramsApp;
 import co.cask.cdap.ToyApp;
@@ -41,19 +42,28 @@ import co.cask.cdap.api.flow.flowlet.AbstractFlowlet;
 import co.cask.cdap.api.flow.flowlet.OutputEmitter;
 import co.cask.cdap.api.mapreduce.AbstractMapReduce;
 import co.cask.cdap.api.procedure.AbstractProcedure;
+import co.cask.cdap.api.schedule.SchedulableProgramType;
+import co.cask.cdap.api.schedule.Schedule;
+import co.cask.cdap.api.schedule.ScheduleSpecification;
 import co.cask.cdap.api.service.ServiceSpecification;
+import co.cask.cdap.api.workflow.ScheduleProgramInfo;
 import co.cask.cdap.app.ApplicationSpecification;
 import co.cask.cdap.app.DefaultAppConfigurer;
 import co.cask.cdap.app.program.Program;
 import co.cask.cdap.app.runtime.ProgramController;
+import co.cask.cdap.common.conf.Constants;
 import co.cask.cdap.internal.app.Specifications;
+import co.cask.cdap.proto.AdapterSpecification;
 import co.cask.cdap.proto.Id;
 import co.cask.cdap.proto.ProgramRunStatus;
 import co.cask.cdap.proto.ProgramType;
 import co.cask.cdap.proto.RunRecord;
+import co.cask.cdap.proto.Sink;
+import co.cask.cdap.proto.Source;
 import co.cask.cdap.test.internal.AppFabricTestHelper;
 import co.cask.cdap.test.internal.DefaultId;
 import com.google.common.base.Charsets;
+import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Sets;
 import com.google.inject.Injector;
@@ -65,6 +75,7 @@ import org.junit.Test;
 
 import java.util.List;
 import java.util.Map;
+import java.util.NoSuchElementException;
 import java.util.Set;
 
 /**
@@ -87,7 +98,7 @@ public class DefaultStoreTest {
   @Test
   public void testLoadingProgram() throws Exception {
     AppFabricTestHelper.deployApplication(ToyApp.class);
-    Program program = store.loadProgram(Id.Program.from(DefaultId.ACCOUNT.getId(), "ToyApp", "ToyFlow"),
+    Program program = store.loadProgram(Id.Program.from(DefaultId.NAMESPACE.getId(), "ToyApp", "ToyFlow"),
                                         ProgramType.FLOW);
     Assert.assertNotNull(program);
   }
@@ -167,7 +178,7 @@ public class DefaultStoreTest {
   @Test
   public void testAddApplication() throws Exception {
     ApplicationSpecification spec = Specifications.from(new WordCountApp());
-    Id.Application id = new Id.Application(new Id.Account("account1"), "application1");
+    Id.Application id = new Id.Application(new Id.Namespace("account1"), "application1");
     store.addApplication(id, spec, new LocalLocationFactory().create("/foo/path/application1.jar"));
 
     ApplicationSpecification stored = store.getApplication(id);
@@ -179,7 +190,7 @@ public class DefaultStoreTest {
   @Test
   public void testUpdateSameApplication() throws Exception {
     ApplicationSpecification spec = Specifications.from(new WordCountApp());
-    Id.Application id = new Id.Application(new Id.Account("account1"), "application1");
+    Id.Application id = new Id.Application(new Id.Namespace("account1"), "application1");
     store.addApplication(id, spec, new LocalLocationFactory().create("/foo/path/application1.jar"));
     // update
     store.addApplication(id, spec, new LocalLocationFactory().create("/foo/path/application1_modified.jar"));
@@ -192,7 +203,7 @@ public class DefaultStoreTest {
 
   @Test
   public void testUpdateChangedApplication() throws Exception {
-    Id.Application id = new Id.Application(new Id.Account("account1"), "application1");
+    Id.Application id = new Id.Application(new Id.Namespace("account1"), "application1");
 
     store.addApplication(id, Specifications.from(new FooApp()), new LocalLocationFactory().create("/foo"));
     // update
@@ -332,7 +343,7 @@ public class DefaultStoreTest {
     AbstractApplication app = new AppWithServices();
 
     ApplicationSpecification appSpec = Specifications.from(app);
-    Id.Application appId = new Id.Application(new Id.Account(DefaultId.ACCOUNT.getId()), appSpec.getName());
+    Id.Application appId = new Id.Application(new Id.Namespace(DefaultId.NAMESPACE.getId()), appSpec.getName());
     store.addApplication(appId, appSpec, new LocalLocationFactory().create("/appwithservicestestdelete"));
 
     AbstractApplication newApp = new AppWithNoServices();
@@ -353,7 +364,7 @@ public class DefaultStoreTest {
     app.configure(appConfigurer, new ApplicationContext());
 
     ApplicationSpecification appSpec = appConfigurer.createSpecification();
-    Id.Application appId = new Id.Application(new Id.Account(DefaultId.ACCOUNT.getId()), appSpec.getName());
+    Id.Application appId = new Id.Application(new Id.Namespace(DefaultId.NAMESPACE.getId()), appSpec.getName());
     store.addApplication(appId, appSpec, new LocalLocationFactory().create("/appwithservices"));
 
     // Test setting of service instances
@@ -379,7 +390,7 @@ public class DefaultStoreTest {
 
     ApplicationSpecification spec = Specifications.from(new WordCountApp());
     int initialInstances = spec.getFlows().get("WordCountFlow").getFlowlets().get("StreamSource").getInstances();
-    Id.Application appId = new Id.Application(new Id.Account(DefaultId.ACCOUNT.getId()), spec.getName());
+    Id.Application appId = new Id.Application(new Id.Namespace(DefaultId.NAMESPACE.getId()), spec.getName());
     store.addApplication(appId, spec, new LocalLocationFactory().create("/foo"));
 
     Id.Program programId = new Id.Program(appId, "WordCountFlow");
@@ -393,7 +404,7 @@ public class DefaultStoreTest {
     // checking that program spec in program jar was adjsuted
     Program program = store.loadProgram(programId, ProgramType.FLOW);
     Assert.assertEquals(initialInstances + 5,
-                        program.getSpecification().
+                        program.getApplicationSpecification().
                           getFlows().get("WordCountFlow").getFlowlets().get("StreamSource").getInstances());
   }
 
@@ -403,7 +414,7 @@ public class DefaultStoreTest {
     AppFabricTestHelper.deployApplication(AllProgramsApp.class);
     ApplicationSpecification spec = Specifications.from(new AllProgramsApp());
 
-    Id.Application appId = new Id.Application(new Id.Account(DefaultId.ACCOUNT.getId()), spec.getName());
+    Id.Application appId = new Id.Application(new Id.Namespace(DefaultId.NAMESPACE.getId()), spec.getName());
     Id.Program programId = new Id.Program(appId, "NoOpProcedure");
 
     int instancesFromSpec = spec.getProcedures().get("NoOpProcedure").getInstances();
@@ -419,62 +430,62 @@ public class DefaultStoreTest {
   @Test
   public void testRemoveAllApplications() throws Exception {
     ApplicationSpecification spec = Specifications.from(new WordCountApp());
-    Id.Account accountId = new Id.Account("account1");
-    Id.Application appId = new Id.Application(accountId, spec.getName());
+    Id.Namespace namespaceId = new Id.Namespace("account1");
+    Id.Application appId = new Id.Application(namespaceId, spec.getName());
     store.addApplication(appId, spec, new LocalLocationFactory().create("/foo"));
 
     Assert.assertNotNull(store.getApplication(appId));
-    Assert.assertEquals(1, store.getAllStreams(new Id.Account("account1")).size());
+    Assert.assertEquals(1, store.getAllStreams(new Id.Namespace("account1")).size());
 
     // removing flow
-    store.removeAllApplications(accountId);
+    store.removeAllApplications(namespaceId);
 
     Assert.assertNull(store.getApplication(appId));
     // Streams and DataSets should survive deletion
-    Assert.assertEquals(1, store.getAllStreams(new Id.Account("account1")).size());
+    Assert.assertEquals(1, store.getAllStreams(new Id.Namespace("account1")).size());
   }
 
   @Test
   public void testRemoveAll() throws Exception {
     ApplicationSpecification spec = Specifications.from(new WordCountApp());
-    Id.Account accountId = new Id.Account("account1");
-    Id.Application appId = new Id.Application(accountId, "application1");
+    Id.Namespace namespaceId = new Id.Namespace("account1");
+    Id.Application appId = new Id.Application(namespaceId, "application1");
     store.addApplication(appId, spec, new LocalLocationFactory().create("/foo"));
 
     Assert.assertNotNull(store.getApplication(appId));
-    Assert.assertEquals(1, store.getAllStreams(new Id.Account("account1")).size());
+    Assert.assertEquals(1, store.getAllStreams(new Id.Namespace("account1")).size());
 
     // removing flow
-    store.removeAll(accountId);
+    store.removeAll(namespaceId);
 
     Assert.assertNull(store.getApplication(appId));
     // Streams and DataSets should not survive deletion
-    Assert.assertEquals(0, store.getAllStreams(new Id.Account("account1")).size());
+    Assert.assertEquals(0, store.getAllStreams(new Id.Namespace("account1")).size());
   }
 
   @Test
   public void testRemoveApplication() throws Exception {
     ApplicationSpecification spec = Specifications.from(new WordCountApp());
-    Id.Account accountId = new Id.Account("account1");
-    Id.Application appId = new Id.Application(accountId, spec.getName());
+    Id.Namespace namespaceId = new Id.Namespace("account1");
+    Id.Application appId = new Id.Application(namespaceId, spec.getName());
     store.addApplication(appId, spec, new LocalLocationFactory().create("/foo"));
 
     Assert.assertNotNull(store.getApplication(appId));
-    Assert.assertEquals(1, store.getAllStreams(new Id.Account("account1")).size());
+    Assert.assertEquals(1, store.getAllStreams(new Id.Namespace("account1")).size());
 
     // removing application
     store.removeApplication(appId);
 
     Assert.assertNull(store.getApplication(appId));
     // Streams and DataSets should survive deletion
-    Assert.assertEquals(1, store.getAllStreams(new Id.Account("account1")).size());
+    Assert.assertEquals(1, store.getAllStreams(new Id.Namespace("account1")).size());
   }
 
   @Test
   public void testRuntimeArgsDeletion() throws Exception {
     ApplicationSpecification spec = Specifications.from(new AllProgramsApp());
-    Id.Account accountId = new Id.Account("testDeleteRuntimeArgs");
-    Id.Application appId = new Id.Application(accountId, spec.getName());
+    Id.Namespace namespaceId = new Id.Namespace("testDeleteRuntimeArgs");
+    Id.Application appId = new Id.Application(namespaceId, spec.getName());
     store.addApplication(appId, spec, new LocalLocationFactory().create("/foo"));
 
     Assert.assertNotNull(store.getApplication(appId));
@@ -530,12 +541,12 @@ public class DefaultStoreTest {
     // Remove application using accountId, AppId and verify
     // Remove all from accountId and verify
     ApplicationSpecification spec = Specifications.from(new AllProgramsApp());
-    Id.Account accountId = new Id.Account("testDeleteAll");
-    Id.Application appId1 = new Id.Application(accountId, spec.getName());
+    Id.Namespace namespaceId = new Id.Namespace("testDeleteAll");
+    Id.Application appId1 = new Id.Application(namespaceId, spec.getName());
     store.addApplication(appId1, spec, new LocalLocationFactory().create("/allPrograms"));
 
     spec = Specifications.from(new WordCountApp());
-    Id.Application appId2 = new Id.Application(accountId, spec.getName());
+    Id.Application appId2 = new Id.Application(namespaceId, spec.getName());
     store.addApplication(appId2, spec, new LocalLocationFactory().create("/wordCount"));
 
     Id.Program flowProgramId1 = new Id.Program(appId1, "NoOpFlow");
@@ -586,7 +597,7 @@ public class DefaultStoreTest {
     verifyRunHistory(flowProgramId2, 1);
 
     // remove all
-    store.removeAll(accountId);
+    store.removeAll(namespaceId);
 
     verifyRunHistory(flowProgramId2, 0);
   }
@@ -612,7 +623,7 @@ public class DefaultStoreTest {
     //Verify if there are 4 program specs in AllProgramsApp
     Assert.assertEquals(4, specsToBeVerified.size());
 
-    Id.Application appId = Id.Application.from(DefaultId.ACCOUNT, "App");
+    Id.Application appId = Id.Application.from(DefaultId.NAMESPACE, "App");
     // Check the diff with the same app - re-deployement scenario where programs are not removed.
     List<ProgramSpecification> deletedSpecs = store.getDeletedProgramSpecifications(appId,  spec);
     Assert.assertEquals(0, deletedSpecs.size());
@@ -645,7 +656,7 @@ public class DefaultStoreTest {
 
     Assert.assertEquals(2, specsToBeDeleted.size());
 
-    Id.Application appId = Id.Application.from(DefaultId.ACCOUNT, "App");
+    Id.Application appId = Id.Application.from(DefaultId.NAMESPACE, "App");
 
     //Get the spec for app that contains only flow and mapreduce - removing procedures and workflows.
     spec = Specifications.from(new FlowMapReduceApp());
@@ -663,4 +674,116 @@ public class DefaultStoreTest {
     Assert.assertEquals(0, specsToBeDeleted.size());
   }
 
+  private static final Id.Namespace account = new Id.Namespace(Constants.DEFAULT_NAMESPACE);
+  private static final Id.Application appId = new Id.Application(account, AppWithWorkflow.NAME);
+  private static final Id.Program program = new Id.Program(appId, AppWithWorkflow.SampleWorkflow.NAME);
+  private static final SchedulableProgramType programType = SchedulableProgramType.WORKFLOW;
+  private static final Schedule schedule1 = new Schedule("Schedule1", "Every minute", "* * * * ?");
+  private static final Schedule schedule2 = new Schedule("Schedule2", "Every Hour", "0 * * * ?");
+  private static final Schedule scheduleWithSameName = new Schedule("Schedule2", "Every minute", "* * * * ?");
+  private static final Map<String, String> properties1 = ImmutableMap.of();
+  private static final Map<String, String> properties2 = ImmutableMap.of();
+  private static final ScheduleSpecification scheduleSpec1 =
+    new ScheduleSpecification(schedule1, new ScheduleProgramInfo(programType, AppWithWorkflow.SampleWorkflow.NAME),
+                              properties1);
+  private static final ScheduleSpecification scheduleSpec2 =
+    new ScheduleSpecification(schedule2, new ScheduleProgramInfo(programType, AppWithWorkflow.SampleWorkflow.NAME),
+                              properties2);
+  private static final ScheduleSpecification scheduleWithSameNameSpec =
+    new ScheduleSpecification(scheduleWithSameName, new ScheduleProgramInfo(programType,
+                                                                            AppWithWorkflow.SampleWorkflow.NAME),
+                              properties2);
+
+  @Test
+  public void testDynamicScheduling() throws Exception {
+    AppFabricTestHelper.deployApplication(AppWithWorkflow.class);
+    Id.Application appId = Id.Application.from(Constants.DEFAULT_NAMESPACE, AppWithWorkflow.NAME);
+
+    Map<String, ScheduleSpecification> schedules = getSchedules(appId);
+    Assert.assertEquals(0, schedules.size());
+
+    store.addSchedule(program, scheduleSpec1);
+    schedules = getSchedules(appId);
+    Assert.assertEquals(1, schedules.size());
+    Assert.assertEquals(scheduleSpec1, schedules.get("Schedule1"));
+
+    store.addSchedule(program, scheduleSpec2);
+    schedules = getSchedules(appId);
+    Assert.assertEquals(2, schedules.size());
+    Assert.assertEquals(scheduleSpec2, schedules.get("Schedule2"));
+
+    try {
+      store.addSchedule(program, scheduleWithSameNameSpec);
+      Assert.fail("Should have thrown Exception because multiple schedules with the same name are being added.");
+    } catch (Exception ex) {
+      Assert.assertEquals(ex.getCause().getCause().getMessage(),
+                          "Schedule with the name 'Schedule2' already exists.");
+    }
+
+    store.deleteSchedule(program, programType, "Schedule2");
+    schedules = getSchedules(appId);
+    Assert.assertEquals(1, schedules.size());
+    Assert.assertEquals(null, schedules.get("Schedule2"));
+
+    try {
+      store.deleteSchedule(program, programType, "Schedule2");
+      Assert.fail();
+    } catch (Exception e) {
+      Assert.assertEquals(NoSuchElementException.class, Throwables.getRootCause(e).getClass());
+    }
+    schedules = getSchedules(appId);
+    Assert.assertEquals(1, schedules.size());
+    Assert.assertEquals(null, schedules.get("Schedule2"));
+  }
+
+  private Map<String, ScheduleSpecification> getSchedules(Id.Application appId) {
+    ApplicationSpecification application = store.getApplication(appId);
+    Assert.assertNotNull(application);
+    return application.getSchedules();
+  }
+  @Test
+  public void testAdapterMDSOperations() throws Exception {
+    Id.Namespace namespaceId = new Id.Namespace("testAdapterMDS");
+
+    Map<String, String> properties = ImmutableMap.of("frequency", "10m");
+    Set<Source> sources = Sets.newHashSet(new Source("eventStream", Source.Type.STREAM,
+                                                         ImmutableMap.of("prop1", "val1")));
+
+    Set<Sink> sinks = Sets.newHashSet(new Sink("myAvroFiles", Sink.Type.DATASET,
+                                                   ImmutableMap.of("type", "co.cask.cdap.data.dataset.Fileset")));
+
+    AdapterSpecification specStreamToAvro1 = new AdapterSpecification("streamToAvro1", "batchStreamToAvro",
+                                                                     properties, sources, sinks);
+
+    AdapterSpecification specStreamToAvro2 = new AdapterSpecification("streamToAvro2", "batchStreamToAvro",
+                                                                     properties, sources, sinks);
+
+    store.addAdapter(namespaceId, specStreamToAvro1);
+    store.addAdapter(namespaceId, specStreamToAvro2);
+
+    // Get non existing spec
+    AdapterSpecification retrievedAdapter = store.getAdapter(namespaceId, "nonExistingAdapter");
+    Assert.assertNull(retrievedAdapter);
+
+    //Retrieve specs
+    AdapterSpecification retrievedSpec = store.getAdapter(namespaceId, "streamToAvro1");
+    Assert.assertEquals(specStreamToAvro1, retrievedSpec);
+    // Remove spec
+    store.removeAdapter(namespaceId, "streamToAvro1");
+
+    // verify the deleted spec is gone.
+    retrievedAdapter = store.getAdapter(namespaceId, "streamToAvro1");
+    Assert.assertNull(retrievedAdapter);
+
+    // verify the other adapter still exists
+    retrievedSpec = store.getAdapter(namespaceId, "streamToAvro2");
+    Assert.assertEquals(specStreamToAvro2, retrievedSpec);
+
+    // remove all
+    store.removeAllAdapters(namespaceId);
+
+    // verify all adapters are gone
+    retrievedAdapter = store.getAdapter(namespaceId, "streamToAvro2");
+    Assert.assertNull(retrievedAdapter);
+  }
 }

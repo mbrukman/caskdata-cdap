@@ -20,6 +20,7 @@ import co.cask.cdap.api.annotation.ProcessInput;
 import co.cask.cdap.api.annotation.UseDataSet;
 import co.cask.cdap.api.app.AbstractApplication;
 import co.cask.cdap.api.common.Bytes;
+import co.cask.cdap.api.data.schema.UnsupportedTypeException;
 import co.cask.cdap.api.data.stream.Stream;
 import co.cask.cdap.api.dataset.lib.ObjectStore;
 import co.cask.cdap.api.dataset.lib.ObjectStores;
@@ -33,9 +34,8 @@ import co.cask.cdap.api.service.http.AbstractHttpServiceHandler;
 import co.cask.cdap.api.service.http.HttpServiceRequest;
 import co.cask.cdap.api.service.http.HttpServiceResponder;
 import co.cask.cdap.api.spark.AbstractSpark;
-import co.cask.cdap.api.spark.SparkSpecification;
-import co.cask.cdap.internal.io.UnsupportedTypeException;
 import com.google.common.base.Charsets;
+import com.google.common.base.Preconditions;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -70,7 +70,7 @@ public class SparkKMeansApp extends AbstractApplication {
 
     // Store input and processed data in ObjectStore Datasets
     try {
-      ObjectStores.createObjectStore(getConfigurer(), "points", String.class);
+      ObjectStores.createObjectStore(getConfigurer(), "points", Point.class);
       ObjectStores.createObjectStore(getConfigurer(), "centers", String.class);
     } catch (UnsupportedTypeException e) {
       // This exception is thrown by ObjectStore if its parameter type cannot be
@@ -87,12 +87,10 @@ public class SparkKMeansApp extends AbstractApplication {
   public static final class SparkKMeansSpecification extends AbstractSpark {
 
     @Override
-    public SparkSpecification configure() {
-      return SparkSpecification.Builder.with()
-        .setName("SparkKMeansProgram")
-        .setDescription("Spark KMeans Program")
-        .setMainClassName(SparkKMeansProgram.class.getName())
-        .build();
+    public void configure() {
+      setName("SparkKMeansProgram");
+      setDescription("Spark KMeans Program");
+      setMainClass(SparkKMeansProgram.class);
     }
   }
 
@@ -104,20 +102,26 @@ public class SparkKMeansApp extends AbstractApplication {
     private static final Logger LOG = LoggerFactory.getLogger(PointsReader.class);
 
     @UseDataSet("points")
-    private ObjectStore<String> pointsStore;
+    private ObjectStore<Point> pointsStore;
 
     @ProcessInput
     public void process(StreamEvent event) {
       String body = Bytes.toString(event.getBody());
       LOG.trace("Points info: {}", body);
-      pointsStore.write(getIdAsByte(UUID.randomUUID()), body);
+      pointsStore.write(getIdAsByte(UUID.randomUUID()), parseEvent(event));
     }
 
-    private static byte[] getIdAsByte(UUID uuid) {
+    private byte[] getIdAsByte(UUID uuid) {
       ByteBuffer bb = ByteBuffer.wrap(new byte[16]);
       bb.putLong(uuid.getMostSignificantBits());
       bb.putLong(uuid.getLeastSignificantBits());
       return bb.array();
+    }
+
+    private Point parseEvent(StreamEvent event) {
+      String[] parts = Bytes.toString(event.getBody()).split(" ");
+      Preconditions.checkArgument(parts.length == 3);
+      return new Point(Double.parseDouble(parts[0]), Double.parseDouble(parts[1]), Double.parseDouble(parts[2]));
     }
   }
 

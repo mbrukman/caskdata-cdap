@@ -34,4 +34,8 @@ public final class ProgramOptionConstants {
   public static final String RETRY_COUNT = "retryCount";
 
   public static final String WORKFLOW_BATCH = "workflowBatch";
+
+  public static final String SCHEDULE_NAME = "scheduleName";
+
+  public static final String CONCURRENT_RUNS_ENABLED = "concurrent.runs.enabled";
 }

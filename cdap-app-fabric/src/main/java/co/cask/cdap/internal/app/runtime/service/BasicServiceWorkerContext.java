@@ -1,5 +1,5 @@
 /*
- * Copyright © 2014 Cask Data, Inc.
+ * Copyright © 2014-2015 Cask Data, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not
  * use this file except in compliance with the License. You may obtain a copy of
@@ -16,32 +16,31 @@
 
 package co.cask.cdap.internal.app.runtime.service;
 
-import co.cask.cdap.api.data.DatasetContext;
-import co.cask.cdap.api.data.DatasetInstantiationException;
+import co.cask.cdap.api.TxRunnable;
 import co.cask.cdap.api.dataset.Dataset;
-import co.cask.cdap.api.dataset.DatasetDefinition;
 import co.cask.cdap.api.metrics.Metrics;
 import co.cask.cdap.api.service.ServiceWorkerContext;
 import co.cask.cdap.api.service.ServiceWorkerSpecification;
-import co.cask.cdap.api.service.TxRunnable;
-import co.cask.cdap.app.metrics.ServiceRunnableMetrics;
+import co.cask.cdap.app.metrics.ProgramUserMetrics;
 import co.cask.cdap.app.program.Program;
 import co.cask.cdap.app.runtime.Arguments;
 import co.cask.cdap.common.conf.CConfiguration;
+import co.cask.cdap.common.conf.Constants;
 import co.cask.cdap.common.logging.LoggingContext;
 import co.cask.cdap.common.metrics.MetricsCollectionService;
+import co.cask.cdap.common.metrics.MetricsCollector;
 import co.cask.cdap.data.Namespace;
 import co.cask.cdap.data2.datafabric.DefaultDatasetNamespace;
+import co.cask.cdap.data2.dataset2.DatasetCacheKey;
 import co.cask.cdap.data2.dataset2.DatasetFramework;
+import co.cask.cdap.data2.dataset2.DynamicDatasetContext;
 import co.cask.cdap.data2.dataset2.NamespacedDatasetFramework;
-import co.cask.cdap.internal.app.program.TypeId;
 import co.cask.cdap.internal.app.runtime.AbstractContext;
 import co.cask.cdap.logging.context.UserServiceLoggingContext;
-import co.cask.cdap.proto.ProgramType;
-import co.cask.tephra.TransactionAware;
 import co.cask.tephra.TransactionContext;
 import co.cask.tephra.TransactionFailureException;
 import co.cask.tephra.TransactionSystemClient;
+import co.cask.tephra.TxConstants;
 import com.google.common.base.Throwables;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
@@ -71,11 +70,12 @@ public class BasicServiceWorkerContext extends AbstractContext implements Servic
   private final Set<String> datasets;
   private final TransactionSystemClient transactionSystemClient;
   private final DatasetFramework datasetFramework;
-  private final ServiceRunnableMetrics serviceRunnableMetrics;
+  private final Metrics userMetrics;
   private final int instanceId;
-  private final int instanceCount;
-  private final LoadingCache<Long, Map<String, Dataset>> datasetsCache;
+  private volatile int instanceCount;
+  private final LoadingCache<Long, Map<DatasetCacheKey, Dataset>> datasetsCache;
   private final Program program;
+  private final Map<String, String> runtimeArgs;
 
   public BasicServiceWorkerContext(ServiceWorkerSpecification spec, Program program, RunId runId, int instanceId,
                                    int instanceCount, Arguments runtimeArgs, CConfiguration cConf,
@@ -83,8 +83,9 @@ public class BasicServiceWorkerContext extends AbstractContext implements Servic
                                    DatasetFramework datasetFramework,
                                    TransactionSystemClient transactionSystemClient,
                                    DiscoveryServiceClient discoveryServiceClient) {
-    super(program, runId, runtimeArgs, spec.getDatasets(), getMetricContext(program, spec.getName(), instanceId),
-          metricsCollectionService, datasetFramework, cConf, discoveryServiceClient);
+    super(program, runId, runtimeArgs, spec.getDatasets(),
+          getMetricCollector(metricsCollectionService, program, spec.getName(), runId.getId(), instanceId),
+          datasetFramework, cConf, discoveryServiceClient);
     this.program = program;
     this.specification = spec;
     this.datasets = ImmutableSet.copyOf(spec.getDatasets());
@@ -93,19 +94,26 @@ public class BasicServiceWorkerContext extends AbstractContext implements Servic
     this.transactionSystemClient = transactionSystemClient;
     this.datasetFramework = new NamespacedDatasetFramework(datasetFramework,
                                                            new DefaultDatasetNamespace(cConf, Namespace.USER));
-    this.serviceRunnableMetrics = new ServiceRunnableMetrics(metricsCollectionService,
-                                                             getMetricContext(program, spec.getName(), instanceId),
-                                                             runId.getId());
+    this.userMetrics = new ProgramUserMetrics(getMetricCollector(metricsCollectionService, program,
+                                                                 spec.getName(), runId.getId(), instanceId));
+    this.runtimeArgs = runtimeArgs.asMap();
+
+    // The cache expiry should be greater than (2 * transaction.timeout) and at least 2 minutes.
+    // This ensures that when a dataset instance is requested multiple times during a single transaction,
+    // the same instance is always returned.
+    long cacheExpiryTimeout =
+      Math.max(2, 2 * TimeUnit.SECONDS.toMinutes(cConf.getInt(TxConstants.Manager.CFG_TX_TIMEOUT,
+                                                              TxConstants.Manager.DEFAULT_TX_TIMEOUT)));
     // A cache of datasets by threadId. Repeated requests for a dataset from the same thread returns the same
     // instance, thus avoiding the overhead of creating a new instance for every request.
     this.datasetsCache = CacheBuilder.newBuilder()
-      .expireAfterAccess(2, TimeUnit.MINUTES)
-      .removalListener(new RemovalListener<Long, Map<String, Dataset>>() {
+      .expireAfterAccess(cacheExpiryTimeout, TimeUnit.MINUTES)
+      .removalListener(new RemovalListener<Long, Map<DatasetCacheKey, Dataset>>() {
         @Override
         @ParametersAreNonnullByDefault
-        public void onRemoval(RemovalNotification<Long, Map<String, Dataset>> notification) {
+        public void onRemoval(RemovalNotification<Long, Map<DatasetCacheKey, Dataset>> notification) {
           if (notification.getValue() != null) {
-            for (Map.Entry<String, Dataset> entry : notification.getValue().entrySet()) {
+            for (Map.Entry<DatasetCacheKey, Dataset> entry : notification.getValue().entrySet()) {
               try {
                 entry.getValue().close();
               } catch (IOException e) {
@@ -115,10 +123,10 @@ public class BasicServiceWorkerContext extends AbstractContext implements Servic
           }
         }
       })
-      .build(new CacheLoader<Long, Map<String, Dataset>>() {
+      .build(new CacheLoader<Long, Map<DatasetCacheKey, Dataset>>() {
         @Override
         @ParametersAreNonnullByDefault
-        public Map<String, Dataset> load(Long key) throws Exception {
+        public Map<DatasetCacheKey, Dataset> load(Long key) throws Exception {
           return Maps.newHashMap();
         }
       });
@@ -126,17 +134,23 @@ public class BasicServiceWorkerContext extends AbstractContext implements Servic
 
   @Override
   public Metrics getMetrics() {
-    return serviceRunnableMetrics;
+    return userMetrics;
   }
 
   public LoggingContext getLoggingContext() {
-    return new UserServiceLoggingContext(program.getAccountId(), program.getApplicationId(),
+    return new UserServiceLoggingContext(program.getNamespaceId(), program.getApplicationId(),
                                          program.getId().getId(), specification.getName());
   }
 
-  private static String getMetricContext(Program program, String runnableName, int instanceId) {
-    return String.format("%s.%s.%s.%s.%d", program.getApplicationId(), TypeId.getMetricContextId(ProgramType.SERVICE),
-                         program.getName(), runnableName, instanceId);
+  private static MetricsCollector getMetricCollector(MetricsCollectionService service, Program program,
+                                                     String runnableName, String runId, int instanceId) {
+    if (service == null) {
+      return null;
+    }
+    Map<String, String> tags = Maps.newHashMap(getMetricsContext(program, runId));
+    tags.put(Constants.Metrics.Tag.SERVICE_RUNNABLE, runnableName);
+    tags.put(Constants.Metrics.Tag.INSTANCE_ID, String.valueOf(instanceId));
+    return service.getCollector(tags);
   }
 
   @Override
@@ -149,7 +163,13 @@ public class BasicServiceWorkerContext extends AbstractContext implements Servic
     final TransactionContext context = new TransactionContext(transactionSystemClient);
     try {
       context.start();
-      runnable.run(new ServiceWorkerDatasetContext(context, datasetsCache));
+      runnable.run(new DynamicDatasetContext(context, datasetFramework, getProgram().getClassLoader(),
+                                             datasets, runtimeArgs) {
+        @Override
+        protected LoadingCache<Long, Map<DatasetCacheKey, Dataset>> getDatasetsCache() {
+          return datasetsCache;
+        }
+      });
       context.finish();
     } catch (TransactionFailureException e) {
       abortTransaction(e, "Failed to commit. Aborting transaction.", context);
@@ -168,6 +188,10 @@ public class BasicServiceWorkerContext extends AbstractContext implements Servic
     return instanceId;
   }
 
+  public void setInstanceCount(int instanceCount) {
+    this.instanceCount = instanceCount;
+  }
+
   @Override
   public void close() {
     super.close();
@@ -184,83 +208,6 @@ public class BasicServiceWorkerContext extends AbstractContext implements Servic
     } catch (TransactionFailureException e1) {
       LOG.error("Failed to abort transaction.", e1);
       throw Throwables.propagate(e1);
-    }
-  }
-
-  private class ServiceWorkerDatasetContext implements DatasetContext {
-    private final TransactionContext context;
-    private final LoadingCache<Long, Map<String, Dataset>> datasetsCache;
-
-    private ServiceWorkerDatasetContext(TransactionContext context,
-                                        LoadingCache<Long, Map<String, Dataset>> datasetsCache) {
-      this.context = context;
-      this.datasetsCache = datasetsCache;
-    }
-
-    /**
-     * Get an instance of the specified Dataset. This method is thread-safe and may be used concurrently.
-     * The returned dataset is also added to the transaction of the current {@link #execute(TxRunnable)} call.
-     *
-     * @param name The name of the Dataset
-     * @param <T> The type of the Dataset
-     * @return A new instance of the specified Dataset, never null.
-     * @throws DatasetInstantiationException If the Dataset cannot be instantiated: its class
-     *         cannot be loaded; the default constructor throws an exception; or the Dataset
-     *         cannot be opened (for example, one of the underlying tables in the DataFabric
-     *         cannot be accessed).
-     */
-    @Override
-    public <T extends Dataset> T getDataset(String name) throws DatasetInstantiationException {
-      return getDataset(name, DatasetDefinition.NO_ARGUMENTS);
-    }
-
-    /**
-     * Get an instance of the specified Dataset. This method is thread-safe and may be used concurrently.
-     * The returned dataset is also added to the transaction of the current {@link #execute(TxRunnable)} call.
-     *
-     * @param name The name of the Dataset
-     * @param arguments the arguments for this dataset instance
-     * @param <T> The type of the Dataset
-     * @return A new instance of the specified Dataset, never null.
-     * @throws DatasetInstantiationException If the Dataset cannot be instantiated: its class
-     *         cannot be loaded; the default constructor throws an exception; or the Dataset
-     *         cannot be opened (for example, one of the underlying tables in the DataFabric
-     *         cannot be accessed).
-     */
-    @Override
-    public synchronized <T extends Dataset> T getDataset(String name, Map<String, String> arguments)
-      throws DatasetInstantiationException {
-
-      if (!datasets.contains(name)) {
-        throw new DatasetInstantiationException(
-          String.format("Trying to access dataset '%s' that was not declared with " +
-                          "useDataset() in the worker's configure()", name));
-      }
-
-      try {
-        Map<String, Dataset> threadLocalMap = datasetsCache.get(Thread.currentThread().getId());
-        Dataset dataset = threadLocalMap.get(name);
-        if (dataset == null) {
-          dataset = datasetFramework.getDataset(name, arguments, getProgram().getClassLoader());
-          if (dataset != null) {
-            threadLocalMap.put(name, dataset);
-          }
-        }
-
-        if (dataset != null) {
-          if (dataset instanceof TransactionAware) {
-            context.addTransactionAware((TransactionAware) dataset);
-          }
-
-          @SuppressWarnings("unchecked")
-          T resultDataset = (T) dataset;
-          return resultDataset;
-        }
-      } catch (Throwable t) {
-        throw new DatasetInstantiationException(String.format("Could not instantiate dataset '%s'", name), t);
-      }
-      // if it gets here, then the dataset was null
-      throw new DatasetInstantiationException(String.format("Dataset '%s' does not exist", name));
     }
   }
 }

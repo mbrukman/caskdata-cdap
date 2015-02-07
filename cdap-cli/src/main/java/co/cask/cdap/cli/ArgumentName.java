@@ -1,5 +1,5 @@
 /*
- * Copyright © 2012-2014 Cask, Inc.
+ * Copyright © 2012-2015 Cask Data, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not
  * use this file except in compliance with the License. You may obtain a copy of
@@ -40,12 +40,15 @@ public enum ArgumentName {
   DATASET("dataset-name"),
   NEW_DATASET("new-dataset-name"),
   STREAM_EVENT("stream-event"),
+  CONTENT_TYPE("content-type"),
+  LOCAL_FILE_PATH("local-file-path"),
   NEW_STREAM("new-stream-id"),
   PARAMETER_MAP("parameter-map"),
   TTL_IN_SECONDS("ttl-in-seconds"),
   NUM_INSTANCES("num-instances"),
   START_TIME("start-time"),
   END_TIME("end-time"),
+  TIMEOUT("timeout"),
   LIMIT("limit"),
   RUN_STATUS("status"),
   APP_JAR_FILE("app-jar-file"),
@@ -56,7 +59,25 @@ public enum ArgumentName {
   HTTP_METHOD("http-method"),
   ENDPOINT("endpoint"),
   HEADERS("headers"),
-  HTTP_BODY("body");
+  HTTP_BODY("body"),
+  FORMAT("format"),
+  SCHEMA("schema"),
+  SETTINGS("settings"),
+  FREQUENCY("frequency"),
+
+  NAMESPACE_ID("namespace-id"),
+  NAMESPACE_DISPLAY_NAME("namespace-display-name"),
+  NAMESPACE_DESCRIPTION("namespace-description"),
+
+  INSTANCE("instance-id"),
+  ADAPTER_TYPE("adapter-type"),
+  ADAPTER_PROPS("adapter-props"),
+  ADAPTER_SOURCE("adapter-source"),
+  ADAPTER_SOURCE_PROPS("adapter-source-config"),
+  ADAPTER_SINK("adapter-sink"),
+  ADAPTER_SINK_PROPS("adapter-sink-config"),
+  ADAPTER("adapter-name"),
+  COMMAND_CATEGORY("command-category");
 
   private final String name;
 

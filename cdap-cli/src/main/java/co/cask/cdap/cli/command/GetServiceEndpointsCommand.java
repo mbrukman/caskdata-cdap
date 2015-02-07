@@ -19,13 +19,16 @@ package co.cask.cdap.cli.command;
 import co.cask.cdap.api.service.Service;
 import co.cask.cdap.api.service.http.ServiceHttpEndpoint;
 import co.cask.cdap.cli.ArgumentName;
+import co.cask.cdap.cli.CLIConfig;
+import co.cask.cdap.cli.Categorized;
+import co.cask.cdap.cli.CommandCategory;
 import co.cask.cdap.cli.ElementType;
 import co.cask.cdap.cli.exception.CommandInputError;
+import co.cask.cdap.cli.util.AbstractAuthCommand;
 import co.cask.cdap.cli.util.AsciiTable;
 import co.cask.cdap.cli.util.RowMaker;
 import co.cask.cdap.client.ServiceClient;
 import co.cask.common.cli.Arguments;
-import co.cask.common.cli.Command;
 import com.google.inject.Inject;
 
 import java.io.PrintStream;
@@ -34,17 +37,18 @@ import java.util.List;
 /**
  * Get a list of the endpoints that a {@link Service} exposes.
  */
-public class GetServiceEndpointsCommand implements Command {
+public class GetServiceEndpointsCommand extends AbstractAuthCommand implements Categorized {
 
   private final ServiceClient serviceClient;
 
   @Inject
-  public GetServiceEndpointsCommand(ServiceClient serviceClient) {
+  public GetServiceEndpointsCommand(ServiceClient serviceClient, CLIConfig cliConfig) {
+    super(cliConfig);
     this.serviceClient = serviceClient;
   }
 
   @Override
-  public void execute(Arguments arguments, PrintStream output) throws Exception {
+  public void perform(Arguments arguments, PrintStream output) throws Exception {
     String[] appAndServiceId = arguments.get(ArgumentName.SERVICE.toString()).split("\\.");
     if (appAndServiceId.length < 2) {
       throw new CommandInputError(this);
@@ -77,5 +81,10 @@ public class GetServiceEndpointsCommand implements Command {
   @Override
   public String getDescription() {
     return String.format("List the endpoints that a %s exposes", ElementType.SERVICE.getPrettyName());
+  }
+
+  @Override
+  public String getCategory() {
+    return CommandCategory.LIFECYCLE.getName();
   }
 }

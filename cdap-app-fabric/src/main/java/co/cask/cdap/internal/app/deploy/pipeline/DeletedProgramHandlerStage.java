@@ -1,5 +1,5 @@
 /*
- * Copyright © 2014 Cask Data, Inc.
+ * Copyright © 2014-2015 Cask Data, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not
  * use this file except in compliance with the License. You may obtain a copy of
@@ -22,8 +22,6 @@ import co.cask.cdap.api.flow.FlowletConnection;
 import co.cask.cdap.app.store.Store;
 import co.cask.cdap.common.conf.Constants;
 import co.cask.cdap.common.discovery.RandomEndpointStrategy;
-import co.cask.cdap.common.discovery.TimeLimitEndpointStrategy;
-import co.cask.cdap.common.metrics.MetricsScope;
 import co.cask.cdap.common.queue.QueueName;
 import co.cask.cdap.data2.transaction.queue.QueueAdmin;
 import co.cask.cdap.data2.transaction.stream.StreamConsumerFactory;
@@ -41,6 +39,7 @@ import com.google.common.reflect.TypeToken;
 import com.ning.http.client.SimpleAsyncHttpClient;
 import org.apache.twill.discovery.Discoverable;
 import org.apache.twill.discovery.DiscoveryServiceClient;
+import org.apache.twill.discovery.ServiceDiscovered;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -94,8 +93,8 @@ public class DeletedProgramHandlerStage extends AbstractStage<ApplicationDeploya
       //call the deleted spec
       ProgramType type = ProgramTypes.fromSpecification(spec);
       Id.Program programId = Id.Program.from(appSpec.getId(), spec.getName());
-      programTerminator.stop(Id.Account.from(appSpec.getId().getAccountId()),
-                                   programId, type);
+      programTerminator.stop(Id.Namespace.from(appSpec.getId().getNamespaceId()),
+                             programId, type);
 
       // TODO: Unify with AppFabricHttpHandler.removeApplication
       // drop all queues and stream states of a deleted flow
@@ -111,26 +110,29 @@ public class DeletedProgramHandlerStage extends AbstractStage<ApplicationDeploya
           }
         }
         // Remove all process states and group states for each stream
-        String namespace = String.format("%s.%s", programId.getApplicationId(), programId.getId());
+        String namespace = String.format("%s.%s.%s",
+                                         programId.getNamespaceId(),
+                                         programId.getApplicationId(),
+                                         programId.getId());
         for (Map.Entry<String, Collection<Long>> entry : streamGroups.asMap().entrySet()) {
           streamConsumerFactory.dropAll(QueueName.fromStream(entry.getKey()), namespace, entry.getValue());
         }
 
-        queueAdmin.dropAllForFlow(programId.getApplicationId(), programId.getId());
+        queueAdmin.dropAllForFlow(programId.getNamespaceId(), programId.getApplicationId(), programId.getId());
         deletedFlows.add(programId.getId());
       }
     }
     if (!deletedFlows.isEmpty()) {
-      deleteMetrics(appSpec.getId().getAccountId(), appSpec.getId().getId(), deletedFlows);
+      deleteMetrics(appSpec.getId().getNamespaceId(), appSpec.getId().getId(), deletedFlows);
     }
 
     emit(appSpec);
   }
 
   private void deleteMetrics(String account, String application, Iterable<String> flows) throws IOException {
-    Iterable<Discoverable> discoverables = this.discoveryServiceClient.discover(Constants.Service.METRICS);
-    Discoverable discoverable = new TimeLimitEndpointStrategy(new RandomEndpointStrategy(discoverables),
-                                                              DISCOVERY_TIMEOUT_SECONDS, TimeUnit.SECONDS).pick();
+    ServiceDiscovered discovered = discoveryServiceClient.discover(Constants.Service.METRICS);
+    Discoverable discoverable = new RandomEndpointStrategy(discovered).pick(DISCOVERY_TIMEOUT_SECONDS,
+                                                                            TimeUnit.SECONDS);
 
     if (discoverable == null) {
       LOG.error("Fail to get any metrics endpoint for deleting metrics.");
@@ -138,28 +140,26 @@ public class DeletedProgramHandlerStage extends AbstractStage<ApplicationDeploya
     }
 
     LOG.debug("Deleting metrics for application {}", application);
-    for (MetricsScope scope : MetricsScope.values()) {
-      for (String flow : flows) {
-        String url = String.format("http://%s:%d%s/metrics/%s/apps/%s/flows/%s",
-                                   discoverable.getSocketAddress().getHostName(),
-                                   discoverable.getSocketAddress().getPort(),
-                                   Constants.Gateway.GATEWAY_VERSION,
-                                   scope.name().toLowerCase(),
-                                   application, flow);
+    for (String flow : flows) {
+      String url = String.format("http://%s:%d%s/metrics/%s/apps/%s/flows/%s",
+                                 discoverable.getSocketAddress().getHostName(),
+                                 discoverable.getSocketAddress().getPort(),
+                                 Constants.Gateway.API_VERSION_2,
+                                 "ignored",
+                                 application, flow);
 
-        SimpleAsyncHttpClient client = new SimpleAsyncHttpClient.Builder()
-          .setUrl(url)
-          .setRequestTimeoutInMs((int) METRICS_SERVER_RESPONSE_TIMEOUT)
-          .build();
+      SimpleAsyncHttpClient client = new SimpleAsyncHttpClient.Builder()
+        .setUrl(url)
+        .setRequestTimeoutInMs((int) METRICS_SERVER_RESPONSE_TIMEOUT)
+        .build();
 
-        try {
-          client.delete().get(METRICS_SERVER_RESPONSE_TIMEOUT, TimeUnit.MILLISECONDS);
-        } catch (Exception e) {
-          LOG.error("exception making metrics delete call", e);
-          Throwables.propagate(e);
-        } finally {
-          client.close();
-        }
+      try {
+        client.delete().get(METRICS_SERVER_RESPONSE_TIMEOUT, TimeUnit.MILLISECONDS);
+      } catch (Exception e) {
+        LOG.error("exception making metrics delete call", e);
+        Throwables.propagate(e);
+      } finally {
+        client.close();
       }
     }
   }

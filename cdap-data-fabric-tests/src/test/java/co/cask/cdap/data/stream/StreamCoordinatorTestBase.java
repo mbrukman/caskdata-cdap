@@ -37,11 +37,12 @@ public abstract class StreamCoordinatorTestBase {
   @ClassRule
   public static TemporaryFolder tmpFolder = new TemporaryFolder();
 
-  protected abstract StreamCoordinator createStreamCoordinator();
+  protected abstract StreamCoordinatorClient createStreamCoordinator();
 
   @Test
   public void testGeneration() throws ExecutionException, InterruptedException, IOException {
-    final StreamCoordinator coordinator = createStreamCoordinator();
+    final StreamCoordinatorClient coordinator = createStreamCoordinator();
+    coordinator.startAndWait();
 
     final CountDownLatch genIdChanged = new CountDownLatch(1);
     coordinator.addListener("testGen", new StreamPropertyListener() {
@@ -74,11 +75,12 @@ public abstract class StreamCoordinatorTestBase {
 
     Assert.assertTrue(genIdChanged.await(10, TimeUnit.SECONDS));
 
-    coordinator.close();
+    coordinator.stopAndWait();
   }
 
   private StreamConfig createStreamConfig(String stream) throws IOException {
     return new StreamConfig(stream, 3600000, 10000, Long.MAX_VALUE,
-                            new LocalLocationFactory(tmpFolder.newFolder()).create(stream));
+                            new LocalLocationFactory(tmpFolder.newFolder()).create(stream),
+                            null, 1000);
   }
 }

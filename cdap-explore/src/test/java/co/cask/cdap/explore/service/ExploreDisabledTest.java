@@ -27,6 +27,7 @@ import co.cask.cdap.common.guice.LocationRuntimeModule;
 import co.cask.cdap.data.runtime.DataFabricModules;
 import co.cask.cdap.data.runtime.DataSetServiceModules;
 import co.cask.cdap.data.runtime.DataSetsModules;
+import co.cask.cdap.data.stream.StreamAdminModules;
 import co.cask.cdap.data2.datafabric.dataset.service.DatasetService;
 import co.cask.cdap.data2.datafabric.dataset.service.executor.DatasetOpExecutor;
 import co.cask.cdap.data2.dataset2.DatasetFramework;
@@ -38,10 +39,14 @@ import co.cask.cdap.explore.service.datasets.KeyStructValueTableDefinition;
 import co.cask.cdap.explore.service.datasets.NotRecordScannableTableDefinition;
 import co.cask.cdap.gateway.auth.AuthModule;
 import co.cask.cdap.metrics.guice.MetricsClientRuntimeModule;
+import co.cask.cdap.notifications.feeds.NotificationFeedManager;
+import co.cask.cdap.notifications.feeds.service.NoOpNotificationFeedManager;
+import co.cask.cdap.notifications.guice.NotificationServiceRuntimeModule;
 import co.cask.tephra.Transaction;
 import co.cask.tephra.TransactionManager;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
+import com.google.inject.AbstractModule;
 import com.google.inject.Guice;
 import com.google.inject.Injector;
 import com.google.inject.Module;
@@ -185,7 +190,15 @@ public class ExploreDisabledTest {
         new MetricsClientRuntimeModule().getInMemoryModules(),
         new AuthModule(),
         new ExploreRuntimeModule().getInMemoryModules(),
-        new ExploreClientModule()
+        new ExploreClientModule(),
+        new StreamAdminModules().getInMemoryModules(),
+        new NotificationServiceRuntimeModule().getInMemoryModules(),
+        new AbstractModule() {
+          @Override
+          protected void configure() {
+            bind(NotificationFeedManager.class).to(NoOpNotificationFeedManager.class);
+          }
+        }
     );
   }
 }

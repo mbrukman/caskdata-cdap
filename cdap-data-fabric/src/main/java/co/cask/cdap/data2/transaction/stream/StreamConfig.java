@@ -15,9 +15,13 @@
  */
 package co.cask.cdap.data2.transaction.stream;
 
+import co.cask.cdap.api.data.format.FormatSpecification;
+import co.cask.cdap.api.data.format.Formats;
+import co.cask.cdap.api.data.schema.Schema;
 import com.google.common.base.Objects;
 import org.apache.twill.filesystem.Location;
 
+import java.util.Collections;
 import javax.annotation.Nullable;
 
 /**
@@ -25,27 +29,34 @@ import javax.annotation.Nullable;
  */
 public final class StreamConfig {
 
+  public static final FormatSpecification DEFAULT_STREAM_FORMAT =
+    new FormatSpecification(
+      Formats.TEXT,
+      Schema.recordOf("stringBody", Schema.Field.of("body", Schema.of(Schema.Type.STRING))),
+      Collections.<String, String>emptyMap());
+
   private final transient String name;
   private final long partitionDuration;
   private final long indexInterval;
   private final long ttl;
+  private final FormatSpecification format;
+  private final Integer notificationThresholdMB;
 
   private final transient Location location;
 
-  public StreamConfig(String name, long partitionDuration, long indexInterval, long ttl, Location location) {
+  public StreamConfig() {
+    this(null, 0, 0, Long.MAX_VALUE, null, null, null);
+  }
+
+  public StreamConfig(String name, long partitionDuration, long indexInterval, long ttl,
+                      Location location, FormatSpecification format, Integer notificationThresholdMB) {
     this.name = name;
     this.partitionDuration = partitionDuration;
     this.indexInterval = indexInterval;
     this.ttl = ttl;
     this.location = location;
-  }
-
-  public StreamConfig() {
-    this.name = null;
-    this.partitionDuration = 0;
-    this.indexInterval = 0;
-    this.ttl = Long.MAX_VALUE;
-    this.location = null;
+    this.notificationThresholdMB = notificationThresholdMB;
+    this.format = format;
   }
 
   /**
@@ -84,6 +95,24 @@ public final class StreamConfig {
     return location;
   }
 
+  /**
+   * @return The format of the stream body.
+   */
+  public FormatSpecification getFormat() {
+    return Objects.firstNonNull(format, DEFAULT_STREAM_FORMAT);
+  }
+
+  public boolean hasFormat() {
+    return format != null;
+  }
+
+  /**
+   * @return The threshold of data, in MB, that the stream has to ingest for a notification to be sent.
+   */
+  public Integer getNotificationThresholdMB() {
+    return notificationThresholdMB;
+  }
+
   @Override
   public String toString() {
     return Objects.toStringHelper(this)
@@ -92,6 +121,8 @@ public final class StreamConfig {
       .add("indexInterval", indexInterval)
       .add("ttl", ttl)
       .add("location", location.toURI())
+      .add("format", format)
+      .add("notificationThresholdMB", notificationThresholdMB)
       .toString();
   }
 }

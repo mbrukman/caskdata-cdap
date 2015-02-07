@@ -17,7 +17,11 @@
 package co.cask.cdap.cli.command;
 
 import co.cask.cdap.cli.ArgumentName;
+import co.cask.cdap.cli.CLIConfig;
+import co.cask.cdap.cli.Categorized;
+import co.cask.cdap.cli.CommandCategory;
 import co.cask.cdap.cli.ElementType;
+import co.cask.cdap.cli.util.AbstractAuthCommand;
 import co.cask.cdap.cli.util.AsciiTable;
 import co.cask.cdap.cli.util.RowMaker;
 import co.cask.cdap.client.QueryClient;
@@ -27,7 +31,6 @@ import co.cask.cdap.explore.service.UnexpectedQueryStatusException;
 import co.cask.cdap.proto.ColumnDesc;
 import co.cask.cdap.proto.QueryResult;
 import co.cask.common.cli.Arguments;
-import co.cask.common.cli.Command;
 import com.google.common.base.Throwables;
 import com.google.common.collect.Lists;
 import com.google.common.util.concurrent.ListenableFuture;
@@ -44,23 +47,25 @@ import java.util.concurrent.TimeoutException;
 /**
  * Executes a dataset query.
  */
-public class ExecuteQueryCommand implements Command {
+public class ExecuteQueryCommand extends AbstractAuthCommand implements Categorized {
 
-  private static final long TIMEOUT_MS = 30000;
+  private static final long TIMEOUT_MINS = TimeUnit.HOURS.toMinutes(1);
   private final QueryClient queryClient;
 
   @Inject
-  public ExecuteQueryCommand(QueryClient queryClient) {
+  public ExecuteQueryCommand(QueryClient queryClient, CLIConfig cliConfig) {
+    super(cliConfig);
     this.queryClient = queryClient;
   }
 
   @Override
-  public void execute(Arguments arguments, PrintStream output) throws Exception {
+  public void perform(Arguments arguments, PrintStream output) throws Exception {
     String query = arguments.get(ArgumentName.QUERY.toString());
+    long timeOutMins = arguments.getLong(ArgumentName.TIMEOUT.toString(), TIMEOUT_MINS);
 
     ListenableFuture<ExploreExecutionResult> future = queryClient.execute(query);
     try {
-      ExploreExecutionResult executionResult = future.get(TIMEOUT_MS, TimeUnit.MILLISECONDS);
+      ExploreExecutionResult executionResult = future.get(timeOutMins, TimeUnit.MINUTES);
       if (!executionResult.canContainResults()) {
         output.println("SQL statement does not output any result.");
         executionResult.close();
@@ -99,18 +104,23 @@ public class ExecuteQueryCommand implements Command {
     } catch (CancellationException e) {
       throw new RuntimeException("Query has been cancelled on ListenableFuture object.");
     } catch (TimeoutException e) {
-      output.println("Couldn't obtain results after " + TIMEOUT_MS + "ms.");
+      output.println("Couldn't obtain results after " + timeOutMins + "mins.");
     }
 
   }
 
   @Override
   public String getPattern() {
-    return String.format("execute <%s>", ArgumentName.QUERY);
+    return String.format("execute <%s> [<%s>]", ArgumentName.QUERY, ArgumentName.TIMEOUT);
   }
 
   @Override
   public String getDescription() {
-    return "Executes a " + ElementType.QUERY.getPrettyName();
+    return "Executes a " + ElementType.QUERY.getPrettyName() + " with optional timeout (default = 60) in minutes";
+  }
+
+  @Override
+  public String getCategory() {
+    return CommandCategory.EXPLORE.getName();
   }
 }

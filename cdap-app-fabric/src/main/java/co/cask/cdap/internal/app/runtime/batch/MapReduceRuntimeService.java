@@ -1,5 +1,5 @@
 /*
- * Copyright © 2014 Cask Data, Inc.
+ * Copyright © 2014-2015 Cask Data, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not
  * use this file except in compliance with the License. You may obtain a copy of
@@ -21,18 +21,23 @@ import co.cask.cdap.api.data.batch.BatchWritable;
 import co.cask.cdap.api.data.batch.InputFormatProvider;
 import co.cask.cdap.api.data.batch.OutputFormatProvider;
 import co.cask.cdap.api.data.batch.Split;
+import co.cask.cdap.api.data.format.FormatSpecification;
 import co.cask.cdap.api.data.stream.StreamBatchReadable;
 import co.cask.cdap.api.dataset.DataSetException;
 import co.cask.cdap.api.dataset.Dataset;
 import co.cask.cdap.api.mapreduce.MapReduce;
+import co.cask.cdap.api.mapreduce.MapReduceContext;
 import co.cask.cdap.api.mapreduce.MapReduceSpecification;
 import co.cask.cdap.api.stream.StreamEventDecoder;
 import co.cask.cdap.common.conf.CConfiguration;
 import co.cask.cdap.common.io.Locations;
+import co.cask.cdap.common.lang.ClassLoaders;
 import co.cask.cdap.common.lang.CombineClassLoader;
 import co.cask.cdap.common.logging.LoggingContextAccessor;
+import co.cask.cdap.common.utils.ApplicationBundler;
 import co.cask.cdap.data.stream.StreamInputFormat;
 import co.cask.cdap.data.stream.StreamUtils;
+import co.cask.cdap.data2.dataset2.DatasetFramework;
 import co.cask.cdap.data2.transaction.Transactions;
 import co.cask.cdap.data2.transaction.stream.StreamAdmin;
 import co.cask.cdap.data2.transaction.stream.StreamConfig;
@@ -41,8 +46,8 @@ import co.cask.cdap.internal.app.runtime.batch.dataset.DataSetInputFormat;
 import co.cask.cdap.internal.app.runtime.batch.dataset.DataSetOutputFormat;
 import co.cask.cdap.proto.Id;
 import co.cask.cdap.proto.ProgramType;
-import co.cask.tephra.DefaultTransactionExecutor;
 import co.cask.tephra.Transaction;
+import co.cask.tephra.TransactionContext;
 import co.cask.tephra.TransactionExecutor;
 import co.cask.tephra.TransactionFailureException;
 import co.cask.tephra.TransactionSystemClient;
@@ -50,7 +55,6 @@ import com.google.common.base.Objects;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Iterables;
 import com.google.common.collect.Sets;
 import com.google.common.io.ByteStreams;
 import com.google.common.reflect.TypeToken;
@@ -58,7 +62,6 @@ import com.google.common.util.concurrent.AbstractExecutionThreadService;
 import com.google.inject.ProvisionException;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
-import org.apache.hadoop.io.LongWritable;
 import org.apache.hadoop.mapreduce.InputFormat;
 import org.apache.hadoop.mapreduce.Job;
 import org.apache.hadoop.mapreduce.MRJobConfig;
@@ -69,7 +72,6 @@ import org.apache.hadoop.security.Credentials;
 import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.twill.filesystem.Location;
 import org.apache.twill.filesystem.LocationFactory;
-import org.apache.twill.internal.ApplicationBundler;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -96,6 +98,9 @@ final class MapReduceRuntimeService extends AbstractExecutionThreadService {
 
   private static final Logger LOG = LoggerFactory.getLogger(MapReduceRuntimeService.class);
 
+  // Name of configuration source if it is set programtically. This constant is not defined in Hadoop
+  private static final String PROGRAMMATIC_SOURCE = "programatically";
+
   private final CConfiguration cConf;
   private final Configuration hConf;
   private final MapReduce mapReduce;
@@ -105,6 +110,7 @@ final class MapReduceRuntimeService extends AbstractExecutionThreadService {
   private final LocationFactory locationFactory;
   private final StreamAdmin streamAdmin;
   private final TransactionSystemClient txClient;
+  private final DatasetFramework datasetFramework;
   private Job job;
   private Transaction transaction;
   private Runnable cleanupTask;
@@ -113,7 +119,8 @@ final class MapReduceRuntimeService extends AbstractExecutionThreadService {
   MapReduceRuntimeService(CConfiguration cConf, Configuration hConf,
                           MapReduce mapReduce, MapReduceSpecification specification, BasicMapReduceContext context,
                           Location programJarLocation, LocationFactory locationFactory,
-                          StreamAdmin streamAdmin, TransactionSystemClient txClient) {
+                          StreamAdmin streamAdmin, TransactionSystemClient txClient,
+                          DatasetFramework datasetFramework) {
     this.cConf = cConf;
     this.hConf = hConf;
     this.mapReduce = mapReduce;
@@ -123,6 +130,7 @@ final class MapReduceRuntimeService extends AbstractExecutionThreadService {
     this.locationFactory = locationFactory;
     this.streamAdmin = streamAdmin;
     this.txClient = txClient;
+    this.datasetFramework = datasetFramework;
   }
 
   @Override
@@ -134,23 +142,6 @@ final class MapReduceRuntimeService extends AbstractExecutionThreadService {
   protected void startUp() throws Exception {
     Job job = Job.getInstance(new Configuration(hConf));
     Configuration mapredConf = job.getConfiguration();
-
-    Resources mapperResources = specification.getMapperResources();
-    Resources reducerResources = specification.getReducerResources();
-
-    // this will determine how much memory and vcores the yarn container will run with
-    if (mapperResources != null) {
-      mapredConf.setInt(Job.MAP_MEMORY_MB, mapperResources.getMemoryMB());
-      // Also set the Xmx to be smaller than the container memory.
-      mapredConf.set(Job.MAP_JAVA_OPTS, "-Xmx" + (int) (mapperResources.getMemoryMB() * 0.8) + "m");
-      setVirtualCores(mapredConf, mapperResources.getVirtualCores(), "MAP");
-    }
-    if (reducerResources != null) {
-      mapredConf.setInt(Job.REDUCE_MEMORY_MB, reducerResources.getMemoryMB());
-      // Also set the Xmx to be smaller than the container memory.
-      mapredConf.set(Job.REDUCE_JAVA_OPTS, "-Xmx" + (int) (reducerResources.getMemoryMB() * 0.8) + "m");
-      setVirtualCores(mapredConf, reducerResources.getVirtualCores(), "REDUCE");
-    }
 
     // Prefer our job jar in the classpath
     // Set both old and new keys
@@ -180,9 +171,30 @@ final class MapReduceRuntimeService extends AbstractExecutionThreadService {
     // Call the user MapReduce for initialization
     beforeSubmit();
 
+    // set resources for the job
+    Resources mapperResources = context.getMapperResources();
+    Resources reducerResources = context.getReducerResources();
+
+    // this will determine how much memory and vcores the yarn container will run with
+    if (mapperResources != null) {
+      mapredConf.setInt(Job.MAP_MEMORY_MB, mapperResources.getMemoryMB());
+      // Also set the Xmx to be smaller than the container memory.
+      mapredConf.set(Job.MAP_JAVA_OPTS, "-Xmx" + (int) (mapperResources.getMemoryMB() * 0.8) + "m");
+      setVirtualCores(mapredConf, mapperResources.getVirtualCores(), "MAP");
+    }
+    if (reducerResources != null) {
+      mapredConf.setInt(Job.REDUCE_MEMORY_MB, reducerResources.getMemoryMB());
+      // Also set the Xmx to be smaller than the container memory.
+      mapredConf.set(Job.REDUCE_JAVA_OPTS, "-Xmx" + (int) (reducerResources.getMemoryMB() * 0.8) + "m");
+      setVirtualCores(mapredConf, reducerResources.getVirtualCores(), "REDUCE");
+    }
+
     // set input/output datasets info
     setInputDatasetIfNeeded(job);
     setOutputDatasetIfNeeded(job);
+
+    setOutputClassesIfNeeded(job);
+    setMapOutputClassesIfNeeded(job);
 
     // replace user's Mapper & Reducer's with our wrappers in job config
     MapperWrapper.wrap(job);
@@ -210,13 +222,12 @@ final class MapReduceRuntimeService extends AbstractExecutionThreadService {
             contextConfig.set(context, cConf, tx, programJarCopy.getName());
 
             LOG.info("Submitting MapReduce Job: {}", context);
-            ClassLoader oldClassLoader = Thread.currentThread().getContextClassLoader();
-            Thread.currentThread().setContextClassLoader(job.getConfiguration().getClassLoader());
+            ClassLoader oldClassLoader = ClassLoaders.setContextClassLoader(job.getConfiguration().getClassLoader());
             try {
               // submits job and returns immediately
               job.submit();
             } finally {
-              Thread.currentThread().setContextClassLoader(oldClassLoader);
+              ClassLoaders.setContextClassLoader(oldClassLoader);
             }
 
             this.job = job;
@@ -354,62 +365,91 @@ final class MapReduceRuntimeService extends AbstractExecutionThreadService {
    * Calls the {@link MapReduce#beforeSubmit(co.cask.cdap.api.mapreduce.MapReduceContext)} method.
    */
   private void beforeSubmit() throws TransactionFailureException, InterruptedException {
-    createTransactionExecutor().execute(new TransactionExecutor.Subroutine() {
+    runUserCodeInTx(new TransactionExecutor.Procedure<MapReduceContext>() {
       @Override
-      public void apply() throws Exception {
-        ClassLoader oldClassLoader = Thread.currentThread().getContextClassLoader();
-        Thread.currentThread().setContextClassLoader(mapReduce.getClass().getClassLoader());
+      public void apply(MapReduceContext mapReduceContext) throws Exception {
+        ClassLoader oldClassLoader = ClassLoaders.setContextClassLoader(context.getProgram().getClassLoader());
         try {
-          mapReduce.beforeSubmit(context);
+          mapReduce.beforeSubmit(mapReduceContext);
         } finally {
-          Thread.currentThread().setContextClassLoader(oldClassLoader);
+          ClassLoaders.setContextClassLoader(oldClassLoader);
         }
       }
-    });
+    }, "beforeSubmit()");
   }
 
   /**
    * Calls the {@link MapReduce#onFinish(boolean, co.cask.cdap.api.mapreduce.MapReduceContext)} method.
    */
   private void onFinish(final boolean succeeded) throws TransactionFailureException, InterruptedException {
-    createTransactionExecutor().execute(new TransactionExecutor.Subroutine() {
+    runUserCodeInTx(new TransactionExecutor.Procedure<MapReduceContext>() {
       @Override
-      public void apply() throws Exception {
-        mapReduce.onFinish(succeeded, context);
+      public void apply(MapReduceContext mapReduceContext) throws Exception {
+        ClassLoader oldClassLoader = ClassLoaders.setContextClassLoader(context.getProgram().getClassLoader());
+        try {
+          mapReduce.onFinish(succeeded, mapReduceContext);
+        } finally {
+          ClassLoaders.setContextClassLoader(oldClassLoader);
+        }
       }
-    });
+    }, "onFinish()");
   }
 
-  /**
-   * Creates a {@link TransactionExecutor} with all the {@link co.cask.tephra.TransactionAware} in the context.
-   */
-  private TransactionExecutor createTransactionExecutor() {
-    return new DefaultTransactionExecutor(txClient, context.getDatasetInstantiator().getTransactionAware());
+  // since the user code may create new TransactionAwares, we need to do this ourselves instead
+  // of going through tephra's TransactionExecutor, since the executor requires that you know all the txAwares
+  // before executing.
+  private void runUserCodeInTx(TransactionExecutor.Procedure<MapReduceContext> userCode, String methodName) {
+    // add datasets given in the application specification to the transaction context
+    TransactionContext txContext =
+      new TransactionContext(txClient, context.getDatasetInstantiator().getTransactionAware());
+    DynamicMapReduceContext mapReduceContextWithTX = null;
+    try {
+      txContext.start();
+      // this context allows the onFinish in user code to get datasets not mentioned in the application spec
+      // it will make sure any txAwares created through the user code will get added to the txContext.
+      mapReduceContextWithTX = new DynamicMapReduceContext(context, datasetFramework, txContext, cConf);
+      userCode.apply(mapReduceContextWithTX);
+      txContext.finish();
+    } catch (TransactionFailureException e) {
+      abortTransaction(e, "Failed to commit after running " + methodName + ". Aborting transaction.", txContext);
+    } catch (Throwable t) {
+      abortTransaction(t, "Exception occurred running " + methodName + ". Aborting transaction.", txContext);
+    } finally {
+      if (mapReduceContextWithTX != null) {
+        mapReduceContextWithTX.close();
+      }
+    }
+  }
+
+  private void abortTransaction(Throwable t, String message, TransactionContext context) {
+    try {
+      LOG.error(message, t);
+      context.abort();
+      Throwables.propagate(t);
+    } catch (TransactionFailureException e) {
+      LOG.error("Failed to abort transaction.", e);
+      Throwables.propagate(e);
+    }
   }
 
   @SuppressWarnings("unchecked")
   private void setInputDatasetIfNeeded(Job job) throws IOException {
     String inputDatasetName = context.getInputDatasetName();
-    if (inputDatasetName == null) {
-      // trying to init input dataset from spec
-      inputDatasetName = context.getSpecification().getInputDataSet();
-    }
-    if (inputDatasetName == null) {
-      // not using a dataset as input
-      return;
-    }
 
     // TODO: It's a hack for stream
-    if (inputDatasetName.startsWith("stream://")) {
+    if (inputDatasetName != null && inputDatasetName.startsWith("stream://")) {
       StreamBatchReadable stream = new StreamBatchReadable(URI.create(inputDatasetName));
       configureStreamInput(job, stream);
       return;
     }
 
-    LOG.debug("Using Dataset {} as input for MapReduce Job", inputDatasetName);
+    Dataset dataset = context.getInputDataset();
+    if (dataset == null) {
+      return;
+    }
 
+    LOG.debug("Using Dataset {} as input for MapReduce Job", inputDatasetName);
     // We checked on validation phase that it implements BatchReadable or InputFormatProvider
-    Dataset dataset = context.getDataset(inputDatasetName);
     if (dataset instanceof BatchReadable) {
       BatchReadable inputDataset = (BatchReadable) dataset;
       List<Split> inputSplits = context.getInputDataSelection();
@@ -427,7 +467,12 @@ final class MapReduceRuntimeService extends AbstractExecutionThreadService {
     if (inputFormatClass == null) {
       throw new DataSetException("Input dataset '" + inputDatasetName + "' provided null as the input format");
     }
-    job.setInputFormatClass(inputFormatClass);
+    // wrap the input format so that the program's classloader is used to create record readers, etc.
+    // otherwise the mapreduce framework may run into problems if the program uses a conflicting version of
+    // some library CDAP depends on (Avro for example).
+    job.setInputFormatClass(InputFormatWrapper.class);
+    InputFormatWrapper.setInputFormatClass(job, inputFormatClass.getName());
+
     Map<String, String> inputConfig = inputDataset.getInputFormatConfiguration();
     if (inputConfig != null) {
       for (Map.Entry<String, String> entry : inputConfig.entrySet()) {
@@ -441,20 +486,13 @@ final class MapReduceRuntimeService extends AbstractExecutionThreadService {
    */
   private void setOutputDatasetIfNeeded(Job job) {
     String outputDatasetName = context.getOutputDatasetName();
-    // whatever was set into mapReduceContext e.g. during beforeSubmit(..) takes precedence
-    if (outputDatasetName == null) {
-      // trying to init output dataset from spec
-      outputDatasetName = context.getSpecification().getOutputDataSet();
-    }
-    if (outputDatasetName == null) {
-      // not using a dataset as input
+    Dataset dataset = context.getOutputDataset();
+    if (dataset == null) {
       return;
     }
 
     LOG.debug("Using Dataset {} as output for MapReduce Job", outputDatasetName);
-
     // We checked on validation phase that it implements BatchWritable or OutputFormatProvider
-    Dataset dataset = context.getDataset(outputDatasetName);
     if (dataset instanceof BatchWritable) {
       DataSetOutputFormat.setOutput(job, outputDatasetName);
       return;
@@ -466,7 +504,12 @@ final class MapReduceRuntimeService extends AbstractExecutionThreadService {
     if (outputFormatClass == null) {
       throw new DataSetException("Output dataset '" + outputDatasetName + "' provided null as the output format");
     }
-    job.setOutputFormatClass(outputFormatClass);
+    // wrap the output format so that the program's classloader is used to create record writers, etc.
+    // otherwise the mapreduce framework may run into problems if the program uses a conflicting version of
+    // some library CDAP depends on (Avro for example).
+    job.setOutputFormatClass(OutputFormatWrapper.class);
+    OutputFormatWrapper.setOutputFormatClass(job, outputFormatClass.getName());
+
     Map<String, String> outputConfig = outputDataset.getOutputFormatConfiguration();
     if (outputConfig != null) {
       for (Map.Entry<String, String> entry : outputConfig.entrySet()) {
@@ -490,13 +533,21 @@ final class MapReduceRuntimeService extends AbstractExecutionThreadService {
     StreamInputFormat.setStreamPath(job, streamPath.toURI());
     StreamInputFormat.setTimeRange(job, stream.getStartTime(), stream.getEndTime());
 
-    String decoderType = stream.getDecoderType();
-    if (decoderType == null) {
-      // If the user don't specify the decoder, detect the type from Mapper/Reducer
-      setStreamEventDecoder(job);
+    FormatSpecification formatSpecification = stream.getFormatSpecification();
+    if (formatSpecification != null) {
+      // this will set the decoder to the correct type. so no need to set it.
+      // TODO: allow type projection if the mapper type is compatible (CDAP-1149)
+      StreamInputFormat.setBodyFormatSpecification(job, formatSpecification);
     } else {
-      StreamInputFormat.setDecoderClassName(job, decoderType);
+      String decoderType = stream.getDecoderType();
+      if (decoderType == null) {
+        // If the user don't specify the decoder, detect the type from Mapper/Reducer
+        setStreamEventDecoder(job);
+      } else {
+        StreamInputFormat.setDecoderClassName(job, decoderType);
+      }
     }
+
     job.setInputFormatClass(StreamInputFormat.class);
 
     LOG.info("Using Stream as input from {}", streamPath.toURI());
@@ -512,57 +563,38 @@ final class MapReduceRuntimeService extends AbstractExecutionThreadService {
    */
   private void setStreamEventDecoder(Job job) throws IOException {
     // Try to set from mapper
-    if (setStreamEventDecoder(job, MRJobConfig.MAP_CLASS_ATTR, Mapper.class)) {
+    TypeToken<Mapper> mapperType = resolveClass(job.getConfiguration(), MRJobConfig.MAP_CLASS_ATTR, Mapper.class);
+    if (mapperType != null) {
+      setStreamEventDecoder(job, mapperType);
       return;
     }
+
     // If there is no Mapper, it's a Reducer only job, hence get the decoder type from Reducer class
-    if (!setStreamEventDecoder(job, MRJobConfig.REDUCE_CLASS_ATTR, Reducer.class)) {
-      throw new IOException("Failed to consume StreamEvent without Mapper/Reducer");
-    }
+    TypeToken<Reducer> reducerType = resolveClass(job.getConfiguration(), MRJobConfig.REDUCE_CLASS_ATTR, Reducer.class);
+    setStreamEventDecoder(job, reducerType);
   }
 
   /**
    * Optionally sets the {@link StreamEventDecoder}.
    *
-   * @param job The MapReduce job
-   * @param typeAttr The job configuration attribute for getting the user class
-   * @param matchSuperType Super type of the class to get from the configuration
-   * @return {@code true} if a decoder is set, {@code false} if no user class is set in the configuration with the given
-   *         attribute name
-   * @throws IOException If the user class is found in the configuration, but not able to determine what
-   *         {@link StreamEventDecoder} class should use.
+   * @throws IOException If not able to determine what {@link StreamEventDecoder} class should use.
+   *
+   * @param <V> type of the super class
    */
-  private boolean setStreamEventDecoder(Job job, String typeAttr, Class<?> matchSuperType) throws IOException {
-    Class<?> userClass = job.getConfiguration().getClass(typeAttr, null, matchSuperType);
-    if (userClass == null) {
-      return false;
+  private <V> void setStreamEventDecoder(Job job, TypeToken<V> type) throws IOException {
+    // The super type must be a parameterized type with <IN_KEY, IN_VALUE, OUT_KEY, OUT_VALUE>
+    if (!(type.getType() instanceof ParameterizedType)) {
+      throw new IOException("Failed to determine decoder for consuming StreamEvent from " + type);
     }
 
-    TypeToken<?>.TypeSet superTypes = TypeToken.of(userClass).getTypes();
-
-    for (TypeToken<?> superType : Iterables.concat(superTypes.classes(), superTypes.interfaces())) {
-      if (!matchSuperType.equals(superType.getRawType())) {
-        continue;
-      }
-      // The super type must be a parameterized type with <IN_KEY, IN_VALUE, OUT_KEY, OUT_VALUE>
-      if (!ParameterizedType.class.isAssignableFrom(superType.getType().getClass())) {
-        continue;
-      }
-
+    try {
       // Try to determine the decoder to use from the first input types
       // The first argument must be LongWritable for it to consumer stream event, as it carries the event timestamp
-      Type[] typeArgs = ((ParameterizedType) superType.getType()).getActualTypeArguments();
-      if (typeArgs.length < 2 || !LongWritable.class.equals(typeArgs[0])) {
-        continue;
-      }
-      try {
-        StreamInputFormat.inferDecoderClass(job.getConfiguration(), typeArgs[1]);
-        return true;
-      } catch (IllegalArgumentException iae) {
-        LOG.debug("Failed to set decoder", iae);
-      }
+      Type[] typeArgs = ((ParameterizedType) type.getType()).getActualTypeArguments();
+      StreamInputFormat.inferDecoderClass(job.getConfiguration(), typeArgs[1]);
+    } catch (IllegalArgumentException e) {
+      throw new IOException("Type not support for consuming StreamEvent from " + type, e);
     }
-    throw new IOException("Failed to determine decoder for consuming StreamEvent from " + userClass);
   }
 
   /**
@@ -583,7 +615,7 @@ final class MapReduceRuntimeService extends AbstractExecutionThreadService {
     Location jobJar =
       locationFactory.create(String.format("%s.%s.%s.%s.%s.jar",
                                            ProgramType.MAPREDUCE.name().toLowerCase(),
-                                           programId.getAccountId(), programId.getApplicationId(),
+                                           programId.getNamespaceId(), programId.getApplicationId(),
                                            programId.getId(), context.getRunId().getId()));
 
     LOG.debug("Creating Job jar: {}", jobJar.toURI());
@@ -601,7 +633,8 @@ final class MapReduceRuntimeService extends AbstractExecutionThreadService {
 
       // If it is StreamInputFormat, also add the StreamEventCodec class as well.
       if (StreamInputFormat.class.isAssignableFrom(inputFormatClass)) {
-        Class<? extends StreamEventDecoder> decoderType = StreamInputFormat.getDecoderClass(jobConf.getConfiguration());
+        Class<? extends StreamEventDecoder> decoderType =
+          StreamInputFormat.getDecoderClass(jobConf.getConfiguration());
         if (decoderType != null) {
           classes.add(decoderType);
         }
@@ -635,6 +668,110 @@ final class MapReduceRuntimeService extends AbstractExecutionThreadService {
   }
 
   /**
+   * Returns a resolved {@link TypeToken} of the given super type by reading a class from the job configuration that
+   * extends from super type.
+   *
+   * @param conf the job configuration
+   * @param typeAttr The job configuration attribute for getting the user class
+   * @param superType Super type of the class to get from the configuration
+   * @param <V> Type of the super type
+   * @return A resolved {@link TypeToken} or {@code null} if no such class in the job configuration
+   */
+  @SuppressWarnings("unchecked")
+  private <V> TypeToken<V> resolveClass(Configuration conf, String typeAttr, Class<V> superType) {
+    Class<? extends V> userClass = conf.getClass(typeAttr, null, superType);
+    if (userClass == null) {
+      return null;
+    }
+
+    return (TypeToken<V>) TypeToken.of(userClass).getSupertype(superType);
+  }
+
+  /**
+   * Sets the output key and value classes in the job configuration by inspecting the {@link Mapper} and {@link Reducer}
+   * if it is not set by the user.
+   *
+   * @param job the MapReduce job
+   */
+  private void setOutputClassesIfNeeded(Job job) {
+    Configuration conf = job.getConfiguration();
+
+    // Try to get the type from reducer
+    TypeToken<?> type = resolveClass(conf, MRJobConfig.REDUCE_CLASS_ATTR, Reducer.class);
+
+    if (type == null) {
+      // Map only job
+      type = resolveClass(conf, MRJobConfig.MAP_CLASS_ATTR, Mapper.class);
+    }
+
+    // If not able to detect type, nothing to set
+    if (type == null || !(type.getType() instanceof ParameterizedType)) {
+      return;
+    }
+
+    Type[] typeArgs = ((ParameterizedType) type.getType()).getActualTypeArguments();
+
+    // Set it only if the user didn't set it in beforeSubmit
+    // The key and value type are in the 3rd and 4th type parameters
+    if (!isProgrammaticConfig(conf, MRJobConfig.OUTPUT_KEY_CLASS)) {
+      Class<?> cls = TypeToken.of(typeArgs[2]).getRawType();
+      LOG.debug("Set output key class to {}", cls);
+      job.setOutputKeyClass(cls);
+    }
+    if (!isProgrammaticConfig(conf, MRJobConfig.OUTPUT_VALUE_CLASS)) {
+      Class<?> cls = TypeToken.of(typeArgs[3]).getRawType();
+      LOG.debug("Set output value class to {}", cls);
+      job.setOutputValueClass(cls);
+    }
+  }
+
+  /**
+   * Sets the map output key and value classes in the job configuration by inspecting the {@link Mapper}
+   * if it is not set by the user.
+   *
+   * @param job the MapReduce job
+   */
+  private void setMapOutputClassesIfNeeded(Job job) {
+    Configuration conf = job.getConfiguration();
+
+    int keyIdx = 2;
+    int valueIdx = 3;
+    TypeToken<?> type = resolveClass(conf, MRJobConfig.MAP_CLASS_ATTR, Mapper.class);
+
+    if (type == null) {
+      // Reducer only job. Use the Reducer input types as the key/value classes.
+      type = resolveClass(conf, MRJobConfig.REDUCE_CLASS_ATTR, Reducer.class);
+      keyIdx = 0;
+      valueIdx = 1;
+    }
+
+    // If not able to detect type, nothing to set.
+    if (type == null || !(type.getType() instanceof ParameterizedType)) {
+      return;
+    }
+
+    Type[] typeArgs = ((ParameterizedType) type.getType()).getActualTypeArguments();
+
+    // Set it only if the user didn't set it in beforeSubmit
+    // The key and value type are in the 3rd and 4th type parameters
+    if (!isProgrammaticConfig(conf, MRJobConfig.MAP_OUTPUT_KEY_CLASS)) {
+      Class<?> cls = TypeToken.of(typeArgs[keyIdx]).getRawType();
+      LOG.debug("Set map output key class to {}", cls);
+      job.setMapOutputKeyClass(cls);
+    }
+    if (!isProgrammaticConfig(conf, MRJobConfig.MAP_OUTPUT_VALUE_CLASS)) {
+      Class<?> cls = TypeToken.of(typeArgs[valueIdx]).getRawType();
+      LOG.debug("Set map output value class to {}", cls);
+      job.setMapOutputValueClass(cls);
+    }
+  }
+
+  private boolean isProgrammaticConfig(Configuration conf, String name) {
+    String[] sources = conf.getPropertySources(name);
+    return sources != null && sources.length > 0 && PROGRAMMATIC_SOURCE.equals(sources[sources.length - 1]);
+  }
+
+  /**
    * Creates a temp copy of the program jar.
    *
    * @return a new {@link Location} which contains the same content as the program jar
@@ -644,7 +781,7 @@ final class MapReduceRuntimeService extends AbstractExecutionThreadService {
     Location programJarCopy = locationFactory.create(
       String.format("%s.%s.%s.%s.%s.program.jar",
                     ProgramType.MAPREDUCE.name().toLowerCase(),
-                    programId.getAccountId(), programId.getApplicationId(),
+                    programId.getNamespaceId(), programId.getApplicationId(),
                     programId.getId(), context.getRunId().getId()));
 
     ByteStreams.copy(Locations.newInputSupplier(programJarLocation), Locations.newOutputSupplier(programJarCopy));

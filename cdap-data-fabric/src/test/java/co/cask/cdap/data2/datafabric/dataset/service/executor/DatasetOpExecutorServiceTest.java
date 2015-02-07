@@ -23,8 +23,8 @@ import co.cask.cdap.api.dataset.table.Put;
 import co.cask.cdap.api.dataset.table.Table;
 import co.cask.cdap.common.conf.CConfiguration;
 import co.cask.cdap.common.conf.Constants;
+import co.cask.cdap.common.discovery.EndpointStrategy;
 import co.cask.cdap.common.discovery.RandomEndpointStrategy;
-import co.cask.cdap.common.discovery.TimeLimitEndpointStrategy;
 import co.cask.cdap.common.guice.ConfigModule;
 import co.cask.cdap.common.guice.DiscoveryRuntimeModule;
 import co.cask.cdap.common.guice.IOModule;
@@ -82,7 +82,7 @@ public class DatasetOpExecutorServiceTest {
 
   private DatasetService managerService;
   private DatasetFramework dsFramework;
-  private TimeLimitEndpointStrategy endpointStrategy;
+  private EndpointStrategy endpointStrategy;
   private TransactionManager txManager;
 
   @Before
@@ -101,7 +101,8 @@ public class DatasetOpExecutorServiceTest {
 
     Injector injector = Guice.createInjector(
       new ConfigModule(cConf, hConf),
-      new IOModule(), new ZKClientModule(),
+      new IOModule(),
+      new ZKClientModule(),
       new KafkaClientModule(),
       new DiscoveryRuntimeModule().getInMemoryModules(),
       new LocationRuntimeModule().getInMemoryModules(),
@@ -122,9 +123,7 @@ public class DatasetOpExecutorServiceTest {
 
     // find host
     DiscoveryServiceClient discoveryClient = injector.getInstance(DiscoveryServiceClient.class);
-    endpointStrategy = new TimeLimitEndpointStrategy(
-      new RandomEndpointStrategy(
-        discoveryClient.discover(Constants.Service.DATASET_MANAGER)), 1L, TimeUnit.SECONDS);
+    endpointStrategy = new RandomEndpointStrategy(discoveryClient.discover(Constants.Service.DATASET_MANAGER));
   }
 
   @After
@@ -216,9 +215,9 @@ public class DatasetOpExecutorServiceTest {
   }
 
   private URL resolve(String path) throws URISyntaxException, MalformedURLException {
-    InetSocketAddress socketAddress = endpointStrategy.pick().getSocketAddress();
+    InetSocketAddress socketAddress = endpointStrategy.pick(1, TimeUnit.SECONDS).getSocketAddress();
     return new URL(String.format("http://%s:%d%s%s", socketAddress.getHostName(),
-                                 socketAddress.getPort(), Constants.Gateway.GATEWAY_VERSION, path));
+                                 socketAddress.getPort(), Constants.Gateway.API_VERSION_2, path));
   }
 
   private DatasetAdminOpResponse getResponse(byte[] body) {

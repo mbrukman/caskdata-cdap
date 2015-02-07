@@ -1,5 +1,5 @@
 /*
- * Copyright © 2014 Cask Data, Inc.
+ * Copyright © 2014-2015 Cask Data, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not
  * use this file except in compliance with the License. You may obtain a copy of
@@ -16,6 +16,7 @@
 
 package co.cask.cdap.test.internal;
 
+import co.cask.cdap.api.schedule.ScheduleSpecification;
 import co.cask.cdap.common.conf.CConfiguration;
 import co.cask.cdap.common.lang.ProgramClassLoader;
 import co.cask.cdap.common.lang.jar.BundleJarUtil;
@@ -42,6 +43,7 @@ import co.cask.tephra.TransactionContext;
 import co.cask.tephra.TransactionFailureException;
 import co.cask.tephra.TransactionSystemClient;
 import com.google.common.base.Preconditions;
+import com.google.common.base.Stopwatch;
 import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Iterables;
@@ -105,7 +107,7 @@ public class DefaultApplicationManager implements ApplicationManager {
       this.datasetInstantiator = new DatasetInstantiator(datasetFramework, configuration,
                                                          new DataSetClassLoader(classLoader),
                                                          // todo: collect metrics for datasets outside programs too
-                                                         null, null);
+                                                         null);
     } catch (IOException e) {
       throw Throwables.propagate(e);
     }
@@ -135,17 +137,20 @@ public class DefaultApplicationManager implements ApplicationManager {
       this.runnableId = runnableId;
       this.runnableType = runnableType;
     }
+
     public String getApplicationId() {
       return this.appId;
     }
+
     public String getRunnableId() {
       return this.runnableId;
     }
+
     public ProgramType getRunnableType() {
       return this.runnableType;
     }
   }
-  
+
   @Override
   public FlowManager startFlow(final String flowName) {
     return startFlow(flowName, ImmutableMap.<String, String>of());
@@ -154,22 +159,7 @@ public class DefaultApplicationManager implements ApplicationManager {
   @Override
   public FlowManager startFlow(final String flowName, Map<String, String> arguments) {
     final ProgramId flowId = startProgram(flowName, arguments, ProgramType.FLOW);
-    return new FlowManager() {
-      @Override
-      public void setFlowletInstances(String flowletName, int instances) {
-        Preconditions.checkArgument(instances > 0, "Instance counter should be > 0.");
-        try {
-          appFabricClient.setFlowletInstances(applicationId, flowName, flowletName, instances);
-        } catch (Exception e) {
-          throw Throwables.propagate(e);
-        }
-      }
-
-      @Override
-      public void stop() {
-        stopProgram(flowId);
-      }
-    };
+    return new DefaultFlowManager(flowName, flowId, applicationId, appFabricClient, this);
   }
 
   @Override
@@ -251,14 +241,16 @@ public class DefaultApplicationManager implements ApplicationManager {
     return jobId;
   }
 
-  private void programWaitForFinish(long timeout, TimeUnit timeoutUnit, ProgramId jobId)
-                                                                        throws InterruptedException, TimeoutException {
-    while (timeout > 0 && isRunning(jobId)) {
-      timeoutUnit.sleep(1);
-      timeout--;
+  private void programWaitForFinish(long timeout, TimeUnit timeoutUnit,
+                                    ProgramId jobId) throws InterruptedException, TimeoutException {
+    // Min sleep time is 10ms, max sleep time is 1 seconds
+    long sleepMillis = Math.max(10, Math.min(timeoutUnit.toMillis(timeout) / 10, TimeUnit.SECONDS.toMillis(1)));
+    Stopwatch stopwatch = new Stopwatch().start();
+    while (isRunning(jobId) && stopwatch.elapsedTime(timeoutUnit) < timeout) {
+      TimeUnit.MILLISECONDS.sleep(sleepMillis);
     }
 
-    if (timeout == 0 && isRunning(jobId)) {
+    if (isRunning(jobId)) {
       throw new TimeoutException("Time limit reached.");
     }
   }
@@ -285,7 +277,6 @@ public class DefaultApplicationManager implements ApplicationManager {
   }
 
 
-
   @Override
   public WorkflowManager startWorkflow(final String workflowName, Map<String, String> arguments) {
     final ProgramId workflowId = new ProgramId(applicationId, workflowName, ProgramType.WORKFLOW);
@@ -293,7 +284,7 @@ public class DefaultApplicationManager implements ApplicationManager {
 
     return new WorkflowManager() {
       @Override
-      public List<String> getSchedules() {
+      public List<ScheduleSpecification> getSchedules() {
         return appFabricClient.getSchedules(applicationId, workflowName);
       }
 
@@ -307,17 +298,17 @@ public class DefaultApplicationManager implements ApplicationManager {
         return new ScheduleManager() {
           @Override
           public void suspend() {
-            appFabricClient.suspend(applicationId, workflowName, schedName);
+            appFabricClient.suspend(applicationId, schedName);
           }
 
           @Override
           public void resume() {
-            appFabricClient.resume(applicationId, workflowName, schedName);
+            appFabricClient.resume(applicationId, schedName);
           }
 
           @Override
-          public String status() {
-            return appFabricClient.scheduleStatus(applicationId, workflowName, schedName);
+          public String status(int expectedCode) {
+            return appFabricClient.scheduleStatus(applicationId, schedName, expectedCode);
           }
         };
       }
@@ -406,7 +397,7 @@ public class DefaultApplicationManager implements ApplicationManager {
     try {
 
       String status = appFabricClient.getStatus(programId.getApplicationId(),
-                                                    programId.getRunnableId(), programId.getRunnableType());
+                                                programId.getRunnableId(), programId.getRunnableType());
       // comparing to hardcoded string is ugly, but this is how appFabricServer works now to support legacy UI
       return "STARTING".equals(status) || "RUNNING".equals(status);
     } catch (Exception e) {

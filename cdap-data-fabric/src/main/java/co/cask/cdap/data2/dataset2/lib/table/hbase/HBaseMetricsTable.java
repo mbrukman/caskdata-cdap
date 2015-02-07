@@ -19,8 +19,6 @@ package co.cask.cdap.data2.dataset2.lib.table.hbase;
 import co.cask.cdap.api.common.Bytes;
 import co.cask.cdap.api.dataset.table.Scanner;
 import co.cask.cdap.common.utils.ImmutablePair;
-import co.cask.cdap.data2.OperationException;
-import co.cask.cdap.data2.StatusCode;
 import co.cask.cdap.data2.dataset2.lib.table.FuzzyRowFilter;
 import co.cask.cdap.data2.dataset2.lib.table.MetricsTable;
 import co.cask.cdap.data2.util.hbase.HBaseTableUtil;
@@ -105,17 +103,53 @@ public class HBaseMetricsTable implements MetricsTable {
 
   @Override
   public void increment(byte[] row, Map<byte[], Long> increments) throws Exception {
-    Increment increment = new Increment(row);
-    for (Map.Entry<byte[], Long> column : increments.entrySet()) {
-      increment.addColumn(DATA_COLUMN_FAMILY, column.getKey(), column.getValue());
-    }
+    Put increment = getIncrementalPut(row, increments);
     try {
-      hTable.increment(increment);
+      hTable.put(increment);
     } catch (IOException e) {
       // figure out whether this is an illegal increment
       // currently there is not other way to extract that from the HBase exception than string match
       if (e.getMessage() != null && e.getMessage().contains("isn't 64 bits wide")) {
-        throw new OperationException(StatusCode.ILLEGAL_INCREMENT, e.getMessage(), e);
+        throw new NumberFormatException("Attempted to increment a value that is not convertible to long," +
+                                          " row: " + Bytes.toStringBinary(row));
+      }
+      throw e;
+    }
+    hTable.flushCommits();
+  }
+
+  private Put getIncrementalPut(byte[] row, Map<byte[], Long> increments) {
+    Put increment = getIncrementalPut(row);
+    for (Map.Entry<byte[], Long> column : increments.entrySet()) {
+      // note: we use default timestamp (current), which is fine because we know we collect metrics no more
+      //       frequent than each second. We also rely on same metric value to be processed by same metric processor
+      //       instance, so no conflicts are possible.
+      increment.add(DATA_COLUMN_FAMILY, column.getKey(), Bytes.toBytes(column.getValue()));
+    }
+    return increment;
+  }
+
+  private Put getIncrementalPut(byte[] row) {
+    Put put = new Put(row);
+    put.setAttribute(HBaseOrderedTable.DELTA_WRITE, Bytes.toBytes(true));
+    return put;
+  }
+
+  @Override
+  public void increment(NavigableMap<byte[], NavigableMap<byte[], Long>> updates) throws Exception {
+    List<Put> puts = Lists.newArrayList();
+    for (Map.Entry<byte[], NavigableMap<byte[], Long>> update : updates.entrySet()) {
+      Put increment = getIncrementalPut(update.getKey(), update.getValue());
+      puts.add(increment);
+    }
+
+    try {
+      hTable.put(puts);
+    } catch (IOException e) {
+      // figure out whether this is an illegal increment
+      // currently there is not other way to extract that from the HBase exception than string match
+      if (e.getMessage() != null && e.getMessage().contains("isn't 64 bits wide")) {
+        throw new NumberFormatException("Attempted to increment a value that is not convertible to long.");
       }
       throw e;
     }
@@ -133,7 +167,9 @@ public class HBaseMetricsTable implements MetricsTable {
       // figure out whether this is an illegal increment
       // currently there is not other way to extract that from the HBase exception than string match
       if (e.getMessage() != null && e.getMessage().contains("isn't 64 bits wide")) {
-        throw new OperationException(StatusCode.ILLEGAL_INCREMENT, e.getMessage(), e);
+        throw new NumberFormatException("Attempted to increment a value that is not convertible to long," +
+                                          " row: " + Bytes.toStringBinary(row) +
+                                          " column: " + Bytes.toStringBinary(column));
       }
       throw e;
     }
@@ -234,7 +270,6 @@ public class HBaseMetricsTable implements MetricsTable {
                                   @Nullable byte[][] columns, @Nullable FuzzyRowFilter filter) {
     // todo: should be configurable
     scan.setCaching(1000);
-    scan.setMaxVersions(1);
 
     if (startRow != null) {
       scan.setStartRow(startRow);

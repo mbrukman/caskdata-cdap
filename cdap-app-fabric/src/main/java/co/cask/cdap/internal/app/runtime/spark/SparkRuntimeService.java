@@ -1,5 +1,5 @@
 /*
- * Copyright © 2014 Cask Data, Inc.
+ * Copyright © 2014-2015 Cask Data, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not
  * use this file except in compliance with the License. You may obtain a copy of
@@ -44,7 +44,6 @@ import org.apache.hadoop.mapreduce.MRConfig;
 import org.apache.spark.deploy.SparkSubmit;
 import org.apache.twill.filesystem.Location;
 import org.apache.twill.filesystem.LocationFactory;
-import org.apache.twill.internal.ApplicationBundler;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -326,15 +325,14 @@ final class SparkRuntimeService extends AbstractExecutionThreadService {
    * @param context {@link BasicSparkContext} created for this job
    * @param conf    {@link Configuration} prepared for this job by {@link SparkContextConfig}
    * @return {@link Location} of the dependency jar
-   * @throws IOException if failed to package the jar through
-   *                     {@link ApplicationBundler#createBundle(Location, Iterable, Iterable)}
+   * @throws IOException if failed to package the jar
    */
   private Location buildDependencyJar(BasicSparkContext context, Configuration conf) throws IOException {
     Id.Program programId = context.getProgram().getId();
 
     Location jobJarLocation = locationFactory.create(String.format("%s.%s.%s.%s.%s.jar",
                                                                    ProgramType.SPARK.name().toLowerCase(),
-                                                                   programId.getAccountId(),
+                                                                   programId.getNamespaceId(),
                                                                    programId.getApplicationId(), programId.getId(),
                                                                    context.getRunId().getId()));
 
@@ -363,7 +361,7 @@ final class SparkRuntimeService extends AbstractExecutionThreadService {
     Id.Program programId = context.getProgram().getId();
     Location programJarCopy = locationFactory.create(String.format("%s.%s.%s.%s.%s.program.jar",
                                                                    ProgramType.SPARK.name().toLowerCase(),
-                                                                   programId.getAccountId(),
+                                                                   programId.getNamespaceId(),
                                                                    programId.getApplicationId(), programId.getId(),
                                                                    context.getRunId().getId()));
 

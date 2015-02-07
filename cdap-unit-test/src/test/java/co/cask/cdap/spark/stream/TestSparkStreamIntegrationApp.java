@@ -23,7 +23,6 @@ import co.cask.cdap.api.dataset.lib.KeyValueTable;
 import co.cask.cdap.api.spark.AbstractSpark;
 import co.cask.cdap.api.spark.JavaSparkProgram;
 import co.cask.cdap.api.spark.SparkContext;
-import co.cask.cdap.api.spark.SparkSpecification;
 import org.apache.hadoop.io.LongWritable;
 import org.apache.hadoop.io.Text;
 import org.apache.spark.api.java.JavaPairRDD;
@@ -45,25 +44,23 @@ public class TestSparkStreamIntegrationApp extends AbstractApplication {
 
   public static class SparkStreamProgramSpec extends AbstractSpark {
     @Override
-    public SparkSpecification configure() {
-      return SparkSpecification.Builder.with()
-        .setName("SparkStreamProgram")
-        .setDescription("Test Spark with Streams")
-        .setMainClassName(SparkStreamProgram.class.getName())
-        .build();
+    public void configure() {
+      setName("SparkStreamProgram");
+      setDescription("Test Spark with Streams");
+      setMainClass(SparkStreamProgram.class);
     }
   }
 
   public static class SparkStreamProgram implements JavaSparkProgram {
     @Override
     public void run(SparkContext context) {
-      JavaPairRDD<LongWritable, Text> rdd = context.readFromStream("testStream", Text.class);
-      JavaPairRDD<byte[], byte[]> resultRDD = rdd.mapToPair(new PairFunction<Tuple2<LongWritable, Text>,
+      JavaPairRDD<LongWritable, String> rdd = context.readFromStream("testStream", String.class);
+      JavaPairRDD<byte[], byte[]> resultRDD = rdd.mapToPair(new PairFunction<Tuple2<LongWritable, String>,
         byte[], byte[]>() {
         @Override
-        public Tuple2<byte[], byte[]> call(Tuple2<LongWritable, Text> longWritableTextTuple2) throws Exception {
-          return new Tuple2<byte[], byte[]>(Bytes.toBytes(longWritableTextTuple2._2().toString()),
-                                            Bytes.toBytes(longWritableTextTuple2._2().toString()));
+        public Tuple2<byte[], byte[]> call(Tuple2<LongWritable, String> longWritableTextTuple2) throws Exception {
+          return new Tuple2<byte[], byte[]>(Bytes.toBytes(longWritableTextTuple2._2()),
+                                            Bytes.toBytes(longWritableTextTuple2._2()));
         }
       });
       context.writeToDataset(resultRDD, "result", byte[].class, byte[].class);

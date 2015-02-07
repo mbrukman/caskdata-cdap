@@ -31,7 +31,8 @@ import co.cask.cdap.common.utils.OSDetector;
 import co.cask.cdap.data.runtime.DataFabricModules;
 import co.cask.cdap.data.runtime.DataSetServiceModules;
 import co.cask.cdap.data.runtime.DataSetsModules;
-import co.cask.cdap.data.stream.service.StreamHttpService;
+import co.cask.cdap.data.stream.StreamAdminModules;
+import co.cask.cdap.data.stream.service.StreamService;
 import co.cask.cdap.data.stream.service.StreamServiceRuntimeModule;
 import co.cask.cdap.data2.datafabric.dataset.service.DatasetService;
 import co.cask.cdap.explore.client.ExploreClient;
@@ -48,6 +49,8 @@ import co.cask.cdap.logging.guice.LoggingModules;
 import co.cask.cdap.metrics.guice.MetricsClientRuntimeModule;
 import co.cask.cdap.metrics.guice.MetricsHandlerModule;
 import co.cask.cdap.metrics.query.MetricsQueryService;
+import co.cask.cdap.notifications.feeds.guice.NotificationFeedServiceRuntimeModule;
+import co.cask.cdap.notifications.guice.NotificationServiceRuntimeModule;
 import co.cask.cdap.security.guice.SecurityModules;
 import co.cask.cdap.security.server.ExternalAuthenticationServer;
 import co.cask.tephra.inmemory.InMemoryTransactionService;
@@ -79,9 +82,8 @@ public class StandaloneMain {
   private final NettyRouter router;
   private final MetricsQueryService metricsQueryService;
   private final AppFabricServer appFabricServer;
-  private final StreamHttpService streamHttpService;
   private final ServiceStore serviceStore;
-
+  private final StreamService streamService;
   private final MetricsCollectionService metricsCollectionService;
 
   private final LogAppenderInitializer logAppenderInitializer;
@@ -109,10 +111,9 @@ public class StandaloneMain {
     metricsCollectionService = injector.getInstance(MetricsCollectionService.class);
     datasetService = injector.getInstance(DatasetService.class);
     serviceStore = injector.getInstance(ServiceStore.class);
+    streamService = injector.getInstance(StreamService.class);
 
     this.webCloudAppService = (webAppPath == null) ? null : injector.getInstance(WebCloudAppService.class);
-
-    streamHttpService = injector.getInstance(StreamHttpService.class);
 
     sslEnabled = configuration.getBoolean(Constants.Security.SSL_ENABLED);
     securityEnabled = configuration.getBoolean(Constants.Security.ENABLED);
@@ -152,6 +153,7 @@ public class StandaloneMain {
     metricsCollectionService.startAndWait();
     datasetService.startAndWait();
     serviceStore.startAndWait();
+    streamService.startAndWait();
 
     // It is recommended to initialize log appender after datasetService is started,
     // since log appender instantiates a dataset.
@@ -167,7 +169,6 @@ public class StandaloneMain {
     if (webCloudAppService != null) {
       webCloudAppService.startAndWait();
     }
-    streamHttpService.startAndWait();
 
     if (securityEnabled) {
       externalAuthenticationServer.startAndWait();
@@ -200,7 +201,7 @@ public class StandaloneMain {
       //  shut down router to stop all incoming traffic
       router.stopAndWait();
       // now the stream writer and the explore service (they need tx)
-      streamHttpService.stopAndWait();
+      streamService.stopAndWait();
       if (exploreExecutorService != null) {
         exploreExecutorService.stopAndWait();
       }
@@ -371,7 +372,10 @@ public class StandaloneMain {
       new StreamServiceRuntimeModule().getStandaloneModules(),
       new ExploreRuntimeModule().getStandaloneModules(),
       new ServiceStoreModules().getStandaloneModule(),
-      new ExploreClientModule()
+      new ExploreClientModule(),
+      new NotificationFeedServiceRuntimeModule().getStandaloneModules(),
+      new NotificationServiceRuntimeModule().getStandaloneModules(),
+      new StreamAdminModules().getStandaloneModules()
     );
   }
 }

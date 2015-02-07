@@ -29,12 +29,14 @@ import co.cask.cdap.common.guice.KafkaClientModule;
 import co.cask.cdap.common.guice.LocationRuntimeModule;
 import co.cask.cdap.common.guice.TwillModule;
 import co.cask.cdap.common.guice.ZKClientModule;
+import co.cask.cdap.common.kerberos.SecurityUtil;
 import co.cask.cdap.common.metrics.MetricsCollectionService;
 import co.cask.cdap.common.runtime.DaemonMain;
 import co.cask.cdap.data.runtime.DataFabricModules;
 import co.cask.cdap.data.runtime.DataSetServiceModules;
 import co.cask.cdap.data.runtime.DataSetsModules;
 import co.cask.cdap.data.security.HBaseSecureStoreUpdater;
+import co.cask.cdap.data.stream.StreamAdminModules;
 import co.cask.cdap.data2.datafabric.dataset.service.DatasetService;
 import co.cask.cdap.data2.util.hbase.ConfigurationTable;
 import co.cask.cdap.data2.util.hbase.HBaseTableUtilFactory;
@@ -46,6 +48,7 @@ import co.cask.cdap.internal.app.services.AppFabricServer;
 import co.cask.cdap.logging.appender.LogAppenderInitializer;
 import co.cask.cdap.logging.guice.LoggingModules;
 import co.cask.cdap.metrics.guice.MetricsClientRuntimeModule;
+import co.cask.cdap.notifications.feeds.guice.NotificationFeedServiceRuntimeModule;
 import com.google.common.base.Charsets;
 import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableMap;
@@ -142,6 +145,13 @@ public class MasterServiceMain extends DaemonMain {
     serviceName = Constants.Service.MASTER_SERVICES;
     cConf.set(Constants.Dataset.Manager.ADDRESS, getLocalHost().getCanonicalHostName());
 
+    try {
+      SecurityUtil.loginForMasterService(cConf);
+    } catch (Exception e) {
+      LOG.error("Failed to login as CDAP user", e);
+      throw Throwables.propagate(e);
+    }
+
     baseInjector = Guice.createInjector(
       new ConfigModule(cConf, hConf),
       new ZKClientModule(),
@@ -159,7 +169,9 @@ public class MasterServiceMain extends DaemonMain {
       new DataSetsModules().getDistributedModule(),
       new MetricsClientRuntimeModule().getDistributedModules(),
       new ServiceStoreModules().getDistributedModule(),
-      new ExploreClientModule()
+      new ExploreClientModule(),
+      new NotificationFeedServiceRuntimeModule().getDistributedModules(),
+      new StreamAdminModules().getDistributedModules()
     );
 
     // Initialize ZK client
@@ -217,6 +229,7 @@ public class MasterServiceMain extends DaemonMain {
         }
 
         LOG.info("Became leader");
+
         Injector injector = baseInjector.createChildInjector();
 
         twillRunnerService = injector.getInstance(TwillRunnerService.class);

@@ -1,5 +1,5 @@
 /*
- * Copyright © 2014 Cask Data, Inc.
+ * Copyright © 2015 Cask Data, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not
  * use this file except in compliance with the License. You may obtain a copy of
@@ -45,7 +45,7 @@ public class ClientConfig {
   private static final int DEFAULT_CONNECT_TIMEOUT = 15000;
   private static final boolean DEFAULT_VERIFY_SSL_CERTIFICATE = true;
 
-  private static final String DEFAULT_VERSION = Constants.Gateway.GATEWAY_VERSION_TOKEN;
+  private static final String DEFAULT_VERSION = Constants.Gateway.API_VERSION_2_TOKEN;
   private static final int DEFAULT_PORT = CONF.getInt(Constants.Router.ROUTER_PORT);
   private static final int DEFAULT_SSL_PORT = CONF.getInt(Constants.Router.ROUTER_SSL_PORT);
   private static final boolean DEFAULT_SSL_ENABLED = CONF.getBoolean(Constants.Security.SSL_ENABLED);
@@ -78,12 +78,40 @@ public class ClientConfig {
 
   /**
    * Resolves a path against the target CDAP server
+   *
    * @param path Path to the HTTP endpoint. For example, "apps" would result
    *             in a URL like "http://example.com:10000/v2/apps".
    * @return URL of the resolved path
    * @throws MalformedURLException
    */
   public URL resolveURL(String path) throws MalformedURLException {
+    return getBaseURI().resolve("/" + apiVersion + "/" + path).toURL();
+  }
+
+  /**
+   * Resolves a path against the target CDAP server with the provided apiVersion and namespace
+   *
+   * @param apiVersion the api version to use
+   * @param namespace the namespace to use
+   * @param path Path to the HTTP endpoint. For example, "apps" would result
+   *             in a URL like "http://example.com:10000/v2/apps".
+   * @return URL of the resolved path
+   * @throws MalformedURLException
+   */
+  public URL resolveURL(String apiVersion, String namespace, String path) throws MalformedURLException {
+    return getBaseURI().resolve("/" + apiVersion + "/namespaces/" + namespace + "/" + path).toURL();
+  }
+
+  /**
+   * Resolves a path against the target CDAP server with the provided apiVersion
+   *
+   * @param apiVersion the api version to use
+   * @param path Path to the HTTP endpoint. For example, "apps" would result
+   *             in a URL like "http://example.com:10000/v2/apps".
+   * @return URL of the resolved path
+   * @throws MalformedURLException
+   */
+  public URL resolveURL(String apiVersion, String path) throws MalformedURLException {
     return getBaseURI().resolve("/" + apiVersion + "/" + path).toURL();
   }
 
@@ -280,6 +308,15 @@ public class ClientConfig {
       return this;
     }
 
+    public Builder setUri(URI uri) {
+      this.hostname = uri.getHost();
+      this.sslEnabled = "https".equals(uri.getScheme());
+      if (uri.getPort() != -1) {
+        this.port = Optional.of(uri.getPort());
+      }
+      return this;
+    }
+    
     public ClientConfig build() {
       return new ClientConfig(hostname, port.or(sslEnabled ? DEFAULT_SSL_PORT : DEFAULT_PORT),
                               sslEnabled, serviceUnavailableRetryLimit, apiVersion, accessToken, verifySSLCert,

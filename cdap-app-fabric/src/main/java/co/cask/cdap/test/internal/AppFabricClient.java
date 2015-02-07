@@ -1,5 +1,5 @@
 /*
- * Copyright © 2014 Cask Data, Inc.
+ * Copyright © 2014-2015 Cask Data, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not
  * use this file except in compliance with the License. You may obtain a copy of
@@ -16,13 +16,16 @@
 
 package co.cask.cdap.test.internal;
 
+import co.cask.cdap.api.schedule.ScheduleSpecification;
 import co.cask.cdap.app.program.ManifestFields;
 import co.cask.cdap.common.conf.Constants;
+import co.cask.cdap.common.utils.ApplicationBundler;
 import co.cask.cdap.gateway.handlers.AppFabricHttpHandler;
 import co.cask.cdap.gateway.handlers.ServiceHttpHandler;
 import co.cask.cdap.internal.app.BufferFileInputStream;
 import co.cask.cdap.proto.ProgramType;
 import co.cask.cdap.proto.RunRecord;
+import co.cask.cdap.proto.ServiceInstances;
 import co.cask.http.BodyConsumer;
 import com.google.common.base.Charsets;
 import com.google.common.base.Preconditions;
@@ -35,7 +38,6 @@ import com.google.gson.JsonObject;
 import com.google.gson.reflect.TypeToken;
 import org.apache.twill.filesystem.Location;
 import org.apache.twill.filesystem.LocationFactory;
-import org.apache.twill.internal.ApplicationBundler;
 import org.jboss.netty.buffer.ChannelBuffers;
 import org.jboss.netty.handler.codec.http.DefaultHttpRequest;
 import org.jboss.netty.handler.codec.http.HttpMethod;
@@ -49,6 +51,7 @@ import java.io.File;
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
+import java.util.jar.Attributes;
 import java.util.jar.JarEntry;
 import java.util.jar.JarInputStream;
 import java.util.jar.JarOutputStream;
@@ -125,7 +128,7 @@ public class AppFabricClient {
     verifyResponse(HttpResponseStatus.OK, responder.getStatus(), "Set runnable instances failed");
   }
 
-  public int getRunnableInstances(String applicationId, String serviceName, String runnableName) {
+  public ServiceInstances getRunnableInstances(String applicationId, String serviceName, String runnableName) {
 
     MockResponder responder = new MockResponder();
     String uri = String.format("/v2/apps/%s/services/%s/runnables/%s/instances",
@@ -133,8 +136,7 @@ public class AppFabricClient {
     HttpRequest request = new DefaultHttpRequest(HttpVersion.HTTP_1_1, HttpMethod.GET, uri);
     serviceHttpHandler.getInstances(request, responder, applicationId, serviceName, runnableName);
     verifyResponse(HttpResponseStatus.OK, responder.getStatus(), "Get runnable instances failed");
-    Map<String, String> instances = responder.decodeResponseContent(new TypeToken<Map<String, String>>() { });
-    return Integer.parseInt(instances.get("provisioned"));
+    return responder.decodeResponseContent(new TypeToken<ServiceInstances>() { });
   }
 
   public void setFlowletInstances(String applicationId, String flowId, String flowletName, int instances) {
@@ -150,13 +152,14 @@ public class AppFabricClient {
     verifyResponse(HttpResponseStatus.OK, responder.getStatus(), "Set flowlet instances failed");
   }
 
-  public List<String> getSchedules(String appId, String wflowId) {
+  public List<ScheduleSpecification> getSchedules(String appId, String wflowId) {
     MockResponder responder = new MockResponder();
     String uri = String.format("/v2/apps/%s/workflows/%s/schedules", appId, wflowId);
     HttpRequest request = new DefaultHttpRequest(HttpVersion.HTTP_1_1, HttpMethod.GET, uri);
-    httpHandler.workflowSchedules(request, responder, appId, wflowId);
+    httpHandler.getWorkflowSchedules(request, responder, appId, wflowId);
 
-    List<String> schedules = responder.decodeResponseContent(new TypeToken<List<String>>() { });
+    List<ScheduleSpecification> schedules = responder.decodeResponseContent(
+      new TypeToken<List<ScheduleSpecification>>() { });
     verifyResponse(HttpResponseStatus.OK, responder.getStatus(), "Getting workflow schedules failed");
     return schedules;
   }
@@ -171,30 +174,35 @@ public class AppFabricClient {
     return responder.decodeResponseContent(new TypeToken<List<RunRecord>>() { });
   }
 
-  public void suspend(String appId, String wflowId, String schedId) {
+  public void suspend(String appId, String scheduleName) {
     MockResponder responder = new MockResponder();
-    String uri = String.format("/v2/apps/%s/workflows/%s/schedules/%s/suspend", appId, wflowId, schedId);
+    String uri = String.format("/v2/apps/%s/schedules/%s/suspend", appId, scheduleName);
     HttpRequest request = new DefaultHttpRequest(HttpVersion.HTTP_1_1, HttpMethod.GET, uri);
-    httpHandler.workflowScheduleSuspend(request, responder, appId, wflowId, schedId);
+    httpHandler.suspendSchedule(request, responder, appId, scheduleName);
     verifyResponse(HttpResponseStatus.OK, responder.getStatus(), "Suspend workflow schedules failed");
   }
 
-  public void resume(String appId, String wflowId, String schedId) {
+  public void resume(String appId, String schedName) {
     MockResponder responder = new MockResponder();
-    String uri = String.format("/v2/apps/%s/workflows/%s/schedules/%s/resume", appId, wflowId, schedId);
+    String uri = String.format("/v2/apps/%s/schedules/%s/resume", appId, schedName);
     HttpRequest request = new DefaultHttpRequest(HttpVersion.HTTP_1_1, HttpMethod.GET, uri);
-    httpHandler.workflowScheduleResume(request, responder, appId, wflowId, schedId);
+    httpHandler.resumeSchedule(request, responder, appId, schedName);
     verifyResponse(HttpResponseStatus.OK, responder.getStatus(), "Resume workflow schedules failed");
   }
 
-  public String scheduleStatus(String appId, String wflowId, String schedId) {
+  public String scheduleStatus(String appId, String schedId, int expectedResponseCode) {
     MockResponder responder = new MockResponder();
-    String uri = String.format("/v2/apps/%s/workflows/%s/schedules/%s/status", appId, wflowId, schedId);
+    String uri = String.format("/v2/apps/%s/schedules/%s/status", appId, schedId);
     HttpRequest request = new DefaultHttpRequest(HttpVersion.HTTP_1_1, HttpMethod.GET, uri);
-    httpHandler.getScheuleState(request, responder, appId, wflowId, schedId);
-    verifyResponse(HttpResponseStatus.OK, responder.getStatus(), "Get workflow schedules status failed");
-    Map<String, String> json = responder.decodeResponseContent(new TypeToken<Map<String, String>>() { });
-    return json.get("status");
+    httpHandler.getStatus(request, responder, appId, "schedules", schedId);
+    verifyResponse(HttpResponseStatus.valueOf(expectedResponseCode), responder.getStatus(),
+                   "Get schedules status failed");
+    if (HttpResponseStatus.NOT_FOUND.getCode() == expectedResponseCode) {
+      return "NOT_FOUND";
+    } else {
+      Map<String, String> json = responder.decodeResponseContent(new TypeToken<Map<String, String>>() { });
+      return json.get("status");
+    }
   }
 
   private void verifyResponse(HttpResponseStatus expected, HttpResponseStatus actual, String errorMsg) {
@@ -226,11 +234,12 @@ public class AppFabricClient {
       locationFactory.create(createDeploymentJar(locationFactory, applicationClz, bundleEmbeddedJars).toURI());
     LOG.info("Created deployedJar at {}", deployedJar.toURI().toASCIIString());
 
+    String archiveName = applicationId + ".jar";
     DefaultHttpRequest request = new DefaultHttpRequest(HttpVersion.HTTP_1_1, HttpMethod.POST, "/v2/apps");
     request.setHeader(Constants.Gateway.API_KEY, "api-key-example");
-    request.setHeader("X-Archive-Name", applicationId + ".jar");
+    request.setHeader("X-Archive-Name", archiveName);
     MockResponder mockResponder = new MockResponder();
-    BodyConsumer bodyConsumer = httpHandler.deploy(request, mockResponder);
+    BodyConsumer bodyConsumer = httpHandler.deploy(request, mockResponder, archiveName);
 
     BufferFileInputStream is = new BufferFileInputStream(deployedJar.getInputStream(), 100 * 1024);
     try {
@@ -252,23 +261,18 @@ public class AppFabricClient {
     return deployedJar;
   }
 
-  private static File createDeploymentJar(LocationFactory locationFactory, Class<?> clz, File...bundleEmbeddedJars)
-    throws IOException {
+  public static File createDeploymentJar(LocationFactory locationFactory, Class<?> clz, Manifest manifest,
+                                         File...bundleEmbeddedJars) throws IOException {
 
     ApplicationBundler bundler = new ApplicationBundler(ImmutableList.of("co.cask.cdap.api",
                                                                          "org.apache.hadoop",
-                                                                         "org.apache.hbase",
                                                                          "org.apache.hive",
-                                                                         "org.apache.spark"));
+                                                                         "org.apache.spark"),
+                                                        ImmutableList.of("org.apache.hadoop.hbase"));
     Location jarLocation = locationFactory.create(clz.getName()).getTempFile(".jar");
     bundler.createBundle(jarLocation, clz);
 
     Location deployJar = locationFactory.create(clz.getName()).getTempFile(".jar");
-
-    // Creates Manifest
-    Manifest manifest = new Manifest();
-    manifest.getMainAttributes().put(ManifestFields.MANIFEST_VERSION, "1.0");
-    manifest.getMainAttributes().put(ManifestFields.MAIN_CLASS, clz.getName());
 
     // Create the program jar for deployment. It removes the "classes/" prefix as that's the convention taken
     // by the ApplicationBundler inside Twill.
@@ -319,4 +323,16 @@ public class AppFabricClient {
     return new File(deployJar.toURI());
   }
 
-}
+  public static File createDeploymentJar(LocationFactory locationFactory, Class<?> clz, File...bundleEmbeddedJars)
+    throws IOException {
+    // Creates Manifest
+    Manifest manifest = new Manifest();
+
+    Attributes attributes = new Attributes();
+    attributes.put(ManifestFields.MAIN_CLASS, clz.getName());
+    attributes.put(ManifestFields.MANIFEST_VERSION, "1.0");
+    manifest.getMainAttributes().putAll(attributes);
+
+    return createDeploymentJar(locationFactory, clz, manifest);
+  }
+ }

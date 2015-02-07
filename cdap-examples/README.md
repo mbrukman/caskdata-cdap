@@ -26,7 +26,7 @@ Each example comes with a Maven pom.xml file. To build, install Maven, and from 
 - For each number *i*, generates i%10000, i%1000, i%100, i%10.
 - Increments the counter for each number.
 
-## FileExample
+## FileSetExample
 
 - Illustrates how to use the FileSet dataset in applications.
 - Uses a Service that uploads files in—or downloads files to—a FileSet.
@@ -43,37 +43,45 @@ Each example comes with a Maven pom.xml file. To build, install Maven, and from 
 
 ## Purchase
 
-- An app that uses scheduled MapReduce Workflows to read from one ObjectStore Dataset
-  and write to another and demonstrates using ad-hoc SQL queries.
+- An app that uses a scheduled Workflow to start a MapReduce that reads from one ObjectStore Dataset
+  and writes to another. The app also demonstrates using ad-hoc SQL queries.
 
   - Send sentences of the form "Tom bought 5 apples for $10" to the purchaseStream.
   - The PurchaseFlow reads the purchaseStream and converts every input String into a
     Purchase object and stores the object in the purchases Dataset.
   - When scheduled by the PurchaseHistoryWorkFlow, the PurchaseHistoryBuilder MapReduce
-    job reads the purchases Dataset, creates a purchase history, and stores the purchase
+    program reads the purchases Dataset, creates a purchase history, and stores the purchase
     history in the history Dataset every morning at 4:00 A.M. You can manually (in the
     Process screen in the CDAP Console) or programmatically execute the 
-    PurchaseHistoryBuilder MapReduce job to store customers' purchase history in the
+    PurchaseHistoryBuilder MapReduce to store customers' purchase history in the
     history Dataset.
   - Request the ``PurchaseHistoryService`` retrieve from the *history* Dataset the purchase history of a user.
   - You can use SQL to formulate ad-hoc queries over the history Dataset. This is done by
     a series of ``curl`` calls, as described in the RESTful API section of the Developer Guide.
 
-- Note: Because by default the PurchaseHistoryWorkFlow process doesn't run until 4:00 A.M.,
-  you'll have to wait until the next day (or manually or programmatically execute the
-  PurcaseHistoryBuilder) after entering the first customers' purchases or the PurchaseQuery
-  will return a "not found" error.
-- For more information, see http://cask.co/docs/cdap/current/en/examples/.
+  - Note: Because by default the PurchaseHistoryWorkFlow process doesn't run until 4:00 A.M.,
+    you'll have to wait until the next day (or manually or programmatically execute the
+    PurcaseHistoryBuilder) after entering the first customers' purchases or the PurchaseQuery
+    will return a "not found" error.
 
 ## SparkKMeans
 
 - An application that demonstrates streaming text analysis using a Spark program.
-  It calculates the centers of points from an input stream using the KMeans Clustering method.  
+- It calculates the centers of points from an input stream using the KMeans Clustering method.
 
 ## SparkPageRank
 
 - An application that demonstrates streaming text analysis using a Spark program.
 - It computes the page rank of URLs from an input stream.
+
+## StreamConversion
+
+- An application that illustrates the use of time-partitioned file sets.
+- It periodically converts a stream into partitions of a file set, which can be read by SQL queries.
+
+## UserProfiles
+
+- An application that demonstrates column-level conflict detection.
 
 ## WebAnalytics
 
@@ -88,7 +96,7 @@ Each example comes with a Maven pom.xml file. To build, install Maven, and from 
 
 Cask is a trademark of Cask Data, Inc. All rights reserved.
 
-Copyright © 2014 Cask Data, Inc.
+Copyright © 2014-2015 Cask Data, Inc.
 
 Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file
 except in compliance with the License. You may obtain a copy of the License at

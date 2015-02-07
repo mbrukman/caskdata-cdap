@@ -25,6 +25,7 @@ import co.cask.cdap.api.service.ServiceWorkerSpecification;
 import co.cask.cdap.api.service.http.HttpServiceContext;
 import co.cask.cdap.api.service.http.HttpServiceHandler;
 import co.cask.cdap.api.service.http.HttpServiceHandlerSpecification;
+import co.cask.cdap.common.metrics.MetricsCollector;
 import co.cask.cdap.common.metrics.NoOpMetricsCollectionService;
 import co.cask.cdap.internal.app.runtime.service.http.DelegatorContext;
 import co.cask.cdap.internal.app.runtime.service.http.HttpHandlerFactory;
@@ -38,6 +39,7 @@ import com.google.common.reflect.TypeToken;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -155,7 +157,9 @@ public class DefaultServiceConfigurer implements ServiceConfigurer {
   }
 
   private <T extends HttpServiceHandler> HttpHandler createHttpHandler(T handler) {
-    HttpHandlerFactory factory = new HttpHandlerFactory("", "0", new NoOpMetricsCollectionService(), "");
+    MetricsCollector noOpsMetricsCollector =
+      new NoOpMetricsCollectionService().getCollector(new HashMap<String, String>());
+    HttpHandlerFactory factory = new HttpHandlerFactory("", noOpsMetricsCollector);
     @SuppressWarnings("unchecked")
     TypeToken<T> type = (TypeToken<T>) TypeToken.of(handler.getClass());
     return factory.createHttpHandler(type, new VerificationDelegateContext<T>(handler));

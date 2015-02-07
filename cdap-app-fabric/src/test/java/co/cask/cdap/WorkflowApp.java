@@ -1,5 +1,5 @@
 /*
- * Copyright © 2014 Cask Data, Inc.
+ * Copyright © 2014-2015 Cask Data, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not
  * use this file except in compliance with the License. You may obtain a copy of
@@ -19,22 +19,28 @@ import co.cask.cdap.api.annotation.Property;
 import co.cask.cdap.api.app.AbstractApplication;
 import co.cask.cdap.api.mapreduce.AbstractMapReduce;
 import co.cask.cdap.api.mapreduce.MapReduceContext;
+import co.cask.cdap.api.spark.AbstractSpark;
+import co.cask.cdap.api.spark.JavaSparkProgram;
+import co.cask.cdap.api.spark.SparkContext;
+import co.cask.cdap.api.workflow.AbstractWorkflow;
 import co.cask.cdap.api.workflow.AbstractWorkflowAction;
-import co.cask.cdap.api.workflow.Workflow;
 import co.cask.cdap.api.workflow.WorkflowActionSpecification;
 import co.cask.cdap.api.workflow.WorkflowContext;
-import co.cask.cdap.api.workflow.WorkflowSpecification;
 import co.cask.cdap.internal.app.runtime.batch.WordCount;
+import co.cask.cdap.runtime.WorkflowTest;
 import com.google.common.base.Preconditions;
+import com.google.common.base.Throwables;
+import org.apache.commons.io.FileUtils;
 import org.apache.hadoop.mapreduce.Job;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.File;
+import java.io.IOException;
 import java.util.Map;
 
 /**
- *
+ * A workflow app used by {@link WorkflowTest} for testing.
  */
 public class WorkflowApp extends AbstractApplication {
 
@@ -43,22 +49,23 @@ public class WorkflowApp extends AbstractApplication {
   public void configure() {
     setName("WorkflowApp");
     setDescription("WorkflowApp");
+    addMapReduce(new WordCountMapReduce());
+    addSpark(new SparkWorkflowTestApp());
     addWorkflow(new FunWorkflow());
   }
 
   /**
    *
    */
-  public static class FunWorkflow implements Workflow {
+  public static class FunWorkflow extends AbstractWorkflow {
 
     @Override
-    public WorkflowSpecification configure() {
-      return WorkflowSpecification.Builder.with()
-        .setName("FunWorkflow")
-        .setDescription("FunWorkflow description")
-        .startWith(new WordCountMapReduce())
-        .last(new CustomAction("verify"))
-        .build();
+    public void configure() {
+        setName("FunWorkflow");
+        setDescription("FunWorkflow description");
+        addMapReduce("ClassicWordCount");
+        addAction(new CustomAction("verify"));
+        addSpark("SparkWorkflowTest");
     }
   }
 
@@ -87,7 +94,30 @@ public class WorkflowApp extends AbstractApplication {
     }
   }
 
+  public static class SparkWorkflowTestApp extends AbstractSpark {
+    @Override
+    public void configure() {
+      setName("SparkWorkflowTest");
+      setDescription("Test Spark with Workflow");
+      setMainClass(SparkWorkflowTestProgram.class);
+    }
+  }
 
+  public static class SparkWorkflowTestProgram implements JavaSparkProgram {
+    @Override
+    public void run(SparkContext context) {
+      File outputDir = new File(context.getRuntimeArguments().get("outputPath"));
+      File successFile = new File(outputDir, "_SUCCESS");
+      Preconditions.checkState(successFile.exists());
+      try {
+        FileUtils.deleteDirectory(successFile);
+      } catch (IOException e) {
+        Throwables.propagate(e);
+      }
+      Preconditions.checkState(!successFile.exists());
+    }
+  }
+  
   /**
    *
    */

@@ -1,14 +1,15 @@
 .. meta::
     :author: Cask Data, Inc.
     :description: Introduction to the Cask Data Application Platform
-    :copyright: Copyright © 2014 Cask Data, Inc.
+    :copyright: Copyright © 2014-2015 Cask Data, Inc.
 
 :hide-relations: true
+:hide-global-toc: true
 
 .. _documentation-index:
 
 ==================================================
-CDAP Documentation
+CDAP Documentation v\ |version|
 ==================================================
 
 .. rubric:: Introduction to the Cask Data Application Platform
@@ -64,12 +65,23 @@ on the installation, monitoring and diagnosing fully distributed CDAP in a Hadoo
   - **Operations:** Logging, metrics, runtime arguments, scaling instances and introduces the CDAP Console
 
 
+.. |integrations| replace:: **Integrations:**
+.. _integrations: integrations/index.html
+
+- |integrations|_ 
+
+  - **Cloudera:** Integrating CDAP into Cloudera, using Cloudera Manager, and running interactive queries with Impala
+  - **JDBC:** The CDAP JDBC Driver, included with CDAP
+  - **Pentaho:** *Pentaho Data Integration*, a Business Intelligence tool that can be used with CDAP
+  - **Squirrel:** *SquirrelSQL*, a simple JDBC client that can be integrated with CDAP
+
+
 .. |examples-manual| replace:: **Examples, Guides, and Tutorials:**
 .. _examples-manual: examples-manual/index.html
 
 - |examples-manual|_
 
-  - **Examples:** Included with the :ref:`CDAP SDK, <getting-started-index>` they range from a simple introductory to more elaborate examples
+  - **Examples:** Included with the :ref:`CDAP SDK <getting-started-index>`, they range from a simple introductory to more elaborate examples
   - **How-To Guides:** Designed to be completed in 15-30 minutes, these guides provide quick, hands-on instructions
   - **Tutorials:** Designed to be completed in 2-3 hours, these tutorials provide deeper, in-context explorations
   - **CDAP Apps and Packs Repository:** data applications built using CDAP and useful building blocks for your data applications
@@ -103,6 +115,12 @@ on the installation, monitoring and diagnosing fully distributed CDAP in a Hadoo
 .. _faq: reference-manual/faq.html
 
 - |faq|_ Answers to questions you might have about CDAP
+
+
+.. |search| replace:: **Search:**
+.. _search: search.html
+
+- |search|_ Search this documentation using *Quick Search*
 
 
 .. |(TM)| unicode:: U+2122 .. trademark sign

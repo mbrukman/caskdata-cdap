@@ -1,5 +1,5 @@
 /*
- * Copyright © 2014 Cask Data, Inc.
+ * Copyright © 2014-2015 Cask Data, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not
  * use this file except in compliance with the License. You may obtain a copy of
@@ -15,23 +15,32 @@
  */
 package co.cask.cdap.data.stream.service;
 
+import co.cask.cdap.api.data.format.FormatSpecification;
+import co.cask.cdap.api.data.format.RecordFormat;
+import co.cask.cdap.api.data.schema.Schema;
+import co.cask.cdap.api.data.schema.UnsupportedTypeException;
 import co.cask.cdap.common.conf.CConfiguration;
 import co.cask.cdap.common.conf.Constants;
 import co.cask.cdap.common.metrics.MetricsCollectionService;
 import co.cask.cdap.common.metrics.MetricsCollector;
-import co.cask.cdap.common.metrics.MetricsScope;
-import co.cask.cdap.data.stream.StreamCoordinator;
+import co.cask.cdap.data.format.RecordFormats;
+import co.cask.cdap.data.stream.StreamCoordinatorClient;
 import co.cask.cdap.data.stream.StreamFileWriterFactory;
+import co.cask.cdap.data.stream.service.upload.BufferedContentWriterFactory;
+import co.cask.cdap.data.stream.service.upload.ContentWriterFactory;
+import co.cask.cdap.data.stream.service.upload.FileContentWriterFactory;
+import co.cask.cdap.data.stream.service.upload.StreamBodyConsumerFactory;
 import co.cask.cdap.data2.transaction.stream.StreamAdmin;
 import co.cask.cdap.data2.transaction.stream.StreamConfig;
 import co.cask.cdap.gateway.auth.Authenticator;
 import co.cask.cdap.gateway.handlers.AuthenticatedHttpHandler;
+import co.cask.cdap.internal.io.SchemaTypeAdapter;
 import co.cask.cdap.proto.StreamProperties;
+import co.cask.http.BodyConsumer;
 import co.cask.http.HandlerContext;
 import co.cask.http.HttpHandler;
 import co.cask.http.HttpResponder;
 import com.google.common.base.CharMatcher;
-import com.google.common.base.Charsets;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.io.Closeables;
 import com.google.gson.Gson;
@@ -42,12 +51,16 @@ import com.google.gson.JsonSerializationContext;
 import com.google.gson.JsonSerializer;
 import com.google.inject.Inject;
 import org.apache.twill.common.Threads;
+import org.jboss.netty.buffer.ChannelBufferInputStream;
+import org.jboss.netty.handler.codec.http.HttpHeaders;
 import org.jboss.netty.handler.codec.http.HttpRequest;
 import org.jboss.netty.handler.codec.http.HttpResponseStatus;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.io.InputStreamReader;
+import java.io.Reader;
 import java.lang.reflect.Type;
 import java.util.Map;
 import java.util.concurrent.ArrayBlockingQueue;
@@ -66,19 +79,23 @@ import javax.ws.rs.PathParam;
  *
  * TODO: Currently stream "dataset" is implementing old dataset API, hence not supporting multi-tenancy.
  */
-@Path(Constants.Gateway.GATEWAY_VERSION + "/streams")
+@Path(Constants.Gateway.API_VERSION_2 + "/streams")
 public final class StreamHandler extends AuthenticatedHttpHandler {
 
   private static final Logger LOG = LoggerFactory.getLogger(StreamHandler.class);
 
   private static final Gson GSON = new GsonBuilder()
     .registerTypeAdapter(StreamProperties.class, new StreamPropertiesAdapter())
+    .registerTypeAdapter(Schema.class, new SchemaTypeAdapter())
     .create();
 
   private final CConfiguration cConf;
   private final StreamAdmin streamAdmin;
-  private final MetricsCollector metricsCollector;
+  private final MetricsCollector streamHandlerMetricsCollector;
+  private final MetricsCollector streamMetricsCollector;
   private final ConcurrentStreamWriter streamWriter;
+  private final long batchBufferThreshold;
+  private final StreamBodyConsumerFactory streamBodyConsumerFactory;
 
   // Executor for serving async enqueue requests
   private ExecutorService asyncExecutor;
@@ -87,19 +104,27 @@ public final class StreamHandler extends AuthenticatedHttpHandler {
   // Currently is here to align with the existing CDAP organization that dataset admin is not aware of MDS
   private final StreamMetaStore streamMetaStore;
 
+  private final StreamWriterSizeCollector sizeCollector;
+
   @Inject
   public StreamHandler(CConfiguration cConf, Authenticator authenticator,
-                       StreamCoordinator streamCoordinator, StreamAdmin streamAdmin, StreamMetaStore streamMetaStore,
-                       StreamFileWriterFactory writerFactory,
-                       MetricsCollectionService metricsCollectionService) {
+                       StreamCoordinatorClient streamCoordinatorClient, StreamAdmin streamAdmin,
+                       StreamMetaStore streamMetaStore, StreamFileWriterFactory writerFactory,
+                       MetricsCollectionService metricsCollectionService,
+                       StreamWriterSizeCollector sizeCollector) {
     super(authenticator);
     this.cConf = cConf;
     this.streamAdmin = streamAdmin;
     this.streamMetaStore = streamMetaStore;
-
-    this.metricsCollector = metricsCollectionService.getCollector(MetricsScope.SYSTEM, getMetricsContext(), "0");
-    this.streamWriter = new ConcurrentStreamWriter(streamCoordinator, streamAdmin, streamMetaStore, writerFactory,
-                                                   cConf.getInt(Constants.Stream.WORKER_THREADS), metricsCollector);
+    this.sizeCollector = sizeCollector;
+    this.batchBufferThreshold = cConf.getLong(Constants.Stream.BATCH_BUFFER_THRESHOLD);
+    this.streamBodyConsumerFactory = new StreamBodyConsumerFactory();
+    this.streamHandlerMetricsCollector = metricsCollectionService.getCollector(getStreamHandlerMetricsContext());
+    this.streamMetricsCollector = metricsCollectionService.getCollector(getStreamMetricsContext());
+    StreamMetricsCollectorFactory metricsCollectorFactory = createStreamMetricsCollectorFactory();
+    this.streamWriter = new ConcurrentStreamWriter(streamCoordinatorClient, streamAdmin, streamMetaStore, writerFactory,
+                                                   cConf.getInt(Constants.Stream.WORKER_THREADS),
+                                                   metricsCollectorFactory);
   }
 
   @Override
@@ -136,7 +161,9 @@ public final class StreamHandler extends AuthenticatedHttpHandler {
 
     if (streamMetaStore.streamExists(accountID, stream)) {
       StreamConfig streamConfig = streamAdmin.getConfig(stream);
-      StreamProperties streamProperties = new StreamProperties(streamConfig.getName(), streamConfig.getTTL());
+      StreamProperties streamProperties =
+        new StreamProperties(streamConfig.getName(), streamConfig.getTTL(), streamConfig.getFormat(),
+                             streamConfig.getNotificationThresholdMB());
       responder.sendJson(HttpResponseStatus.OK, streamProperties, StreamProperties.class, GSON);
     } else {
       responder.sendStatus(HttpResponseStatus.NOT_FOUND);
@@ -186,13 +213,32 @@ public final class StreamHandler extends AuthenticatedHttpHandler {
   @POST
   @Path("/{stream}/async")
   public void asyncEnqueue(HttpRequest request, HttpResponder responder,
-                           @PathParam("stream") final String stream) throws Exception {
+                           @PathParam("stream") String stream) throws Exception {
     String accountId = getAuthenticatedAccountId(request);
     // No need to copy the content buffer as we always uses a ChannelBufferFactory that won't reuse buffer.
     // See StreamHttpService
-    streamWriter.asyncEnqueue(accountId, stream,
-                              getHeaders(request, stream), request.getContent().toByteBuffer(), asyncExecutor);
+    streamWriter.asyncEnqueue(accountId, stream, getHeaders(request, stream),
+                              request.getContent().toByteBuffer(), asyncExecutor);
     responder.sendStatus(HttpResponseStatus.ACCEPTED);
+  }
+
+  @POST
+  @Path("/{stream}/batch")
+  public BodyConsumer batch(HttpRequest request, HttpResponder responder,
+                            @PathParam("stream") String stream) throws Exception {
+    String accountId = getAuthenticatedAccountId(request);
+
+    if (!streamMetaStore.streamExists(accountId, stream)) {
+      responder.sendString(HttpResponseStatus.NOT_FOUND, "Stream does not exists");
+      return null;
+    }
+
+    try {
+      return streamBodyConsumerFactory.create(request, createContentWriterFactory(accountId, stream, request));
+    } catch (UnsupportedOperationException e) {
+      responder.sendString(HttpResponseStatus.NOT_ACCEPTABLE, e.getMessage());
+      return null;
+    }
   }
 
   @POST
@@ -222,49 +268,140 @@ public final class StreamHandler extends AuthenticatedHttpHandler {
     String accountId = getAuthenticatedAccountId(request);
 
     if (!streamMetaStore.streamExists(accountId, stream)) {
-      responder.sendString(HttpResponseStatus.NOT_FOUND, "Stream does not exists");
+      responder.sendString(HttpResponseStatus.NOT_FOUND, "Stream does not exist.");
       return;
     }
 
+    StreamConfig currConfig;
     try {
-      StreamConfig config = streamAdmin.getConfig(stream);
-      try {
-        config = getConfigUpdate(request, config);
-        if (config.getTTL() < 0) {
-          responder.sendString(HttpResponseStatus.BAD_REQUEST, "TTL value should be positive");
-          return;
-        }
-      } catch (Throwable t) {
-        responder.sendString(HttpResponseStatus.BAD_REQUEST, "Invalid stream configuration");
-        return;
-      }
-
-      streamAdmin.updateConfig(config);
-      responder.sendStatus(HttpResponseStatus.OK);
-
+      currConfig = streamAdmin.getConfig(stream);
     } catch (IOException e) {
-      responder.sendString(HttpResponseStatus.NOT_FOUND, "Stream does not exists");
+      responder.sendString(HttpResponseStatus.NOT_FOUND, "Stream " + stream + " does not exist.");
+      return;
     }
+
+    StreamConfig requestedConfig = getAndValidateConfig(currConfig, request, responder);
+    // null is returned if the requested config is invalid. An appropriate response will have already been written
+    // to the responder so we just need to return.
+    if (requestedConfig == null) {
+      return;
+    }
+
+    streamAdmin.updateConfig(requestedConfig);
+    responder.sendStatus(HttpResponseStatus.OK);
   }
 
-  private String getMetricsContext() {
-    return Constants.Gateway.METRICS_CONTEXT + "." + cConf.getInt(Constants.Stream.CONTAINER_INSTANCE_ID, 0);
+  private StreamMetricsCollectorFactory createStreamMetricsCollectorFactory() {
+    return new StreamMetricsCollectorFactory() {
+      @Override
+      public StreamMetricsCollector createMetricsCollector(final String streamName) {
+        final MetricsCollector childCollector =
+          streamMetricsCollector.childCollector(Constants.Metrics.Tag.STREAM, streamName);
+        return new StreamMetricsCollector() {
+          @Override
+          public void emitMetrics(long bytesWritten, long eventsWritten) {
+            if (bytesWritten > 0) {
+              childCollector.increment("collect.bytes", bytesWritten);
+              sizeCollector.received(streamName, bytesWritten);
+            }
+            if (eventsWritten > 0) {
+              childCollector.increment("collect.events", eventsWritten);
+            }
+          }
+        };
+      }
+    };
   }
 
+  private Map<String, String> getStreamHandlerMetricsContext() {
+    return ImmutableMap.of(Constants.Metrics.Tag.NAMESPACE, Constants.SYSTEM_NAMESPACE,
+                           Constants.Metrics.Tag.COMPONENT, Constants.Gateway.METRICS_CONTEXT,
+                           Constants.Metrics.Tag.HANDLER, Constants.Gateway.STREAM_HANDLER_NAME,
+                           Constants.Metrics.Tag.INSTANCE_ID, cConf.get(Constants.Stream.CONTAINER_INSTANCE_ID, "0"));
+  }
 
-  private StreamConfig getConfigUpdate(HttpRequest request, StreamConfig config) {
-    JsonObject json = GSON.fromJson(request.getContent().toString(Charsets.UTF_8), JsonObject.class);
+  /**
+   * TODO: CDAP-1244:This should accept namespaceId. Refactor metricsCollectors here after streams are namespaced.
+   */
+  private Map<String, String> getStreamMetricsContext() {
+    return ImmutableMap.of(Constants.Metrics.Tag.NAMESPACE, Constants.DEFAULT_NAMESPACE,
+                           Constants.Metrics.Tag.COMPONENT, Constants.Gateway.METRICS_CONTEXT,
+                           Constants.Metrics.Tag.HANDLER, Constants.Gateway.STREAM_HANDLER_NAME,
+                           Constants.Metrics.Tag.INSTANCE_ID, cConf.get(Constants.Stream.CONTAINER_INSTANCE_ID, "0"));
+  }
+  
+  // given the current config for a stream and requested config for a stream, get the new stream config
+  // with defaults in place of missing settings, and validation performed on the requested fields.
+  // If a field is missing or invalid, this method will write an appropriate response to the responder and
+  // return a null config.
+  private StreamConfig getAndValidateConfig(StreamConfig currConfig, HttpRequest request, HttpResponder responder) {
+    // get new config settings from the request. Only TTL and format spec can be changed, which is
+    // why the StreamProperties object is used instead of a StreamConfig object.
+    Reader reader = new InputStreamReader(new ChannelBufferInputStream(request.getContent()));
+    StreamProperties properties;
+    try {
+      properties = GSON.fromJson(reader, StreamProperties.class);
+    } catch (Exception e) {
+      responder.sendString(HttpResponseStatus.BAD_REQUEST, "Invalid stream configuration. Please check that the " +
+        "configuration is a valid JSON Object with a valid schema.");
+      return null;
+    }
 
-    // Only pickup changes in TTL
-    if (json.has("ttl")) {
-      JsonElement ttl = json.get("ttl");
-      if (ttl.isJsonPrimitive()) {
-        // TTL in the REST API is in seconds. Convert it to ms for the config.
-        return new StreamConfig(config.getName(), config.getPartitionDuration(), config.getIndexInterval(),
-                                TimeUnit.SECONDS.toMillis(ttl.getAsLong()), config.getLocation());
+    // if no ttl is given, use the existing ttl.
+    Long newTTL = properties.getTTL();
+    if (newTTL == null) {
+      newTTL = currConfig.getTTL();
+    } else {
+      if (newTTL < 0) {
+        responder.sendString(HttpResponseStatus.BAD_REQUEST, "TTL value should be positive.");
+        return null;
+      }
+      // TTL in the REST API is in seconds. Convert it to ms for the config.
+      newTTL = TimeUnit.SECONDS.toMillis(newTTL);
+    }
+
+    FormatSpecification newFormatSpec = properties.getFormat();
+    // if no format spec is given, use the existing format spec.
+    if (newFormatSpec == null) {
+      newFormatSpec = currConfig.getFormat();
+    } else {
+      String formatName = newFormatSpec.getName();
+      if (formatName == null) {
+        responder.sendString(HttpResponseStatus.BAD_REQUEST, "A format name must be specified.");
+        return null;
+      }
+      try {
+        // if a format is given, make sure it is a valid format,
+        // check that we can instantiate the format class
+        RecordFormat<?, ?> format = RecordFormats.createInitializedFormat(newFormatSpec);
+        // the request may contain a null schema, in which case the default schema of the format should be used.
+        // create a new specification object that is guaranteed to have a non-null schema.
+        newFormatSpec = new FormatSpecification(newFormatSpec.getName(),
+                                                format.getSchema(), newFormatSpec.getSettings());
+      } catch (UnsupportedTypeException e) {
+        responder.sendString(HttpResponseStatus.BAD_REQUEST,
+                             "Format " + formatName + " does not support the requested schema.");
+        return null;
+      } catch (Exception e) {
+        responder.sendString(HttpResponseStatus.BAD_REQUEST,
+                             "Invalid format, unable to instantiate format " + formatName);
+        return null;
       }
     }
-    return config;
+
+    // if no threshold is given, use the existing threshold.
+    Integer newThreshold = properties.getThreshold();
+    if (newThreshold == null) {
+      newThreshold = currConfig.getNotificationThresholdMB();
+    } else {
+      if (newThreshold <= 0) {
+        responder.sendString(HttpResponseStatus.BAD_REQUEST, "Threshold value should be greater than zero.");
+        return null;
+      }
+    }
+
+    return new StreamConfig(currConfig.getName(), currConfig.getPartitionDuration(), currConfig.getIndexInterval(),
+                            newTTL, currConfig.getLocation(), newFormatSpec, newThreshold);
   }
 
   private RejectedExecutionHandler createAsyncRejectedExecutionHandler() {
@@ -272,7 +409,7 @@ public final class StreamHandler extends AuthenticatedHttpHandler {
       @Override
       public void rejectedExecution(Runnable r, ThreadPoolExecutor executor) {
         if (!executor.isShutdown()) {
-          metricsCollector.increment("collect.async.reject", 1);
+          streamHandlerMetricsCollector.increment("collect.async.reject", 1);
           r.run();
         }
       }
@@ -288,17 +425,47 @@ public final class StreamHandler extends AuthenticatedHttpHandler {
       .or(CharMatcher.inRange('0', '9')).matchesAllOf(streamName);
   }
 
+  /**
+   * Same as calling {@link #getHeaders(HttpRequest, String, ImmutableMap.Builder)} with a new builder.
+   */
   private Map<String, String> getHeaders(HttpRequest request, String stream) {
-    // build a new event from the request, start with the headers
-    ImmutableMap.Builder<String, String> headers = ImmutableMap.builder();
+    return getHeaders(request, stream, ImmutableMap.<String, String>builder());
+  }
+
+  /**
+   * Extracts event headers from the HTTP request. Only HTTP headers that are prefixed with "{@code <stream-name>.}"
+   * will be included. The result will be stored in an Immutable map built by the given builder.
+   */
+  private Map<String, String> getHeaders(HttpRequest request, String stream,
+                                         ImmutableMap.Builder<String, String> builder) {
     // and transfer all other headers that are to be preserved
     String prefix = stream + ".";
     for (Map.Entry<String, String> header : request.getHeaders()) {
       if (header.getKey().startsWith(prefix)) {
-        headers.put(header.getKey().substring(prefix.length()), header.getValue());
+        builder.put(header.getKey().substring(prefix.length()), header.getValue());
       }
     }
-    return headers.build();
+    return builder.build();
+  }
+
+  /**
+   * Creates a {@link ContentWriterFactory} based on the request size. Used by the batch endpoint.
+   */
+  private ContentWriterFactory createContentWriterFactory(String accountId,
+                                                          String stream, HttpRequest request) throws IOException {
+    long contentLength = HttpHeaders.getContentLength(request, -1L);
+    String contentType = HttpHeaders.getHeader(request, HttpHeaders.Names.CONTENT_TYPE, "");
+
+    // The content-type is guaranteed to be non-empty, otherwise the batch request itself will fail.
+    Map<String, String> headers = getHeaders(request, stream,
+                                             ImmutableMap.<String, String>builder().put("content.type", contentType));
+
+    if (contentLength >= 0 && contentLength <= batchBufferThreshold) {
+      return new BufferedContentWriterFactory(accountId, stream, streamWriter, headers);
+    }
+
+    StreamConfig config = streamAdmin.getConfig(stream);
+    return new FileContentWriterFactory(accountId, config, streamWriter, headers);
   }
 
   /**
@@ -310,6 +477,8 @@ public final class StreamHandler extends AuthenticatedHttpHandler {
       JsonObject json = new JsonObject();
       json.addProperty("name", src.getName());
       json.addProperty("ttl", TimeUnit.MILLISECONDS.toSeconds(src.getTTL()));
+      json.add("format", context.serialize(src.getFormat(), FormatSpecification.class));
+      json.addProperty("threshold", src.getThreshold());
       return json;
     }
   }

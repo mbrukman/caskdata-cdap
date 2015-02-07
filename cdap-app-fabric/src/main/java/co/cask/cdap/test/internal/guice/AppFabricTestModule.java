@@ -1,5 +1,5 @@
 /*
- * Copyright © 2014 Cask Data, Inc.
+ * Copyright © 2014-2015 Cask Data, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not
  * use this file except in compliance with the License. You may obtain a copy of
@@ -13,8 +13,10 @@
  * License for the specific language governing permissions and limitations under
  * the License.
  */
+
 package co.cask.cdap.test.internal.guice;
 
+import co.cask.cdap.api.schedule.SchedulableProgramType;
 import co.cask.cdap.api.schedule.Schedule;
 import co.cask.cdap.app.guice.AppFabricServiceRuntimeModule;
 import co.cask.cdap.app.guice.ProgramRunnerRuntimeModule;
@@ -25,9 +27,12 @@ import co.cask.cdap.common.guice.ConfigModule;
 import co.cask.cdap.common.guice.DiscoveryRuntimeModule;
 import co.cask.cdap.common.guice.IOModule;
 import co.cask.cdap.common.guice.LocationRuntimeModule;
+import co.cask.cdap.config.guice.ConfigStoreModule;
 import co.cask.cdap.data.runtime.DataFabricModules;
 import co.cask.cdap.data.runtime.DataSetServiceModules;
 import co.cask.cdap.data.runtime.DataSetsModules;
+import co.cask.cdap.data.stream.StreamAdminModules;
+import co.cask.cdap.data.stream.service.StreamServiceRuntimeModule;
 import co.cask.cdap.explore.guice.ExploreClientModule;
 import co.cask.cdap.gateway.auth.AuthModule;
 import co.cask.cdap.internal.app.runtime.schedule.ScheduledRuntime;
@@ -35,8 +40,8 @@ import co.cask.cdap.internal.app.runtime.schedule.Scheduler;
 import co.cask.cdap.logging.guice.LoggingModules;
 import co.cask.cdap.metrics.guice.MetricsClientRuntimeModule;
 import co.cask.cdap.metrics.guice.MetricsHandlerModule;
+import co.cask.cdap.notifications.feeds.guice.NotificationFeedServiceRuntimeModule;
 import co.cask.cdap.proto.Id;
-import co.cask.cdap.proto.ProgramType;
 import com.google.common.collect.ImmutableList;
 import com.google.inject.AbstractModule;
 import com.google.inject.PrivateModule;
@@ -90,38 +95,50 @@ public final class AppFabricTestModule extends AbstractModule {
     install(new LoggingModules().getInMemoryModules());
     install(new MetricsHandlerModule());
     install(new ExploreClientModule());
+    install(new NotificationFeedServiceRuntimeModule().getInMemoryModules());
+    install(new ConfigStoreModule().getInMemoryModule());
+    install(new StreamAdminModules().getInMemoryModules());
+    install(new StreamServiceRuntimeModule().getInMemoryModules());
   }
 
   private Scheduler createNoopScheduler() {
     return new Scheduler() {
       @Override
-      public void schedule(Id.Program program, ProgramType programType, Iterable<Schedule> schedules) {
+      public void schedule(Id.Program program, SchedulableProgramType programType, Schedule schedule) {
       }
 
       @Override
-      public List<ScheduledRuntime> nextScheduledRuntime(Id.Program program, ProgramType programType) {
+      public void schedule(Id.Program program, SchedulableProgramType programType, Iterable<Schedule> schedules) {
+      }
+
+      @Override
+      public List<ScheduledRuntime> nextScheduledRuntime(Id.Program program, SchedulableProgramType programType) {
         return ImmutableList.of();
       }
 
       @Override
-      public List<String> getScheduleIds(Id.Program program, ProgramType programType) {
+      public List<String> getScheduleIds(Id.Program program, SchedulableProgramType programType) {
         return ImmutableList.of();
       }
 
       @Override
-      public void suspendSchedule(String scheduleId) {
+      public void suspendSchedule(Id.Program program, SchedulableProgramType programType, String scheduleName) {
       }
 
       @Override
-      public void resumeSchedule(String scheduleId) {
+      public void resumeSchedule(Id.Program program, SchedulableProgramType programType, String scheduleName) {
       }
 
       @Override
-      public void deleteSchedules(Id.Program programId, ProgramType programType, List<String> scheduleIds) {
+      public void deleteSchedule(Id.Program program, SchedulableProgramType programType, String scheduleName) {
       }
 
       @Override
-      public ScheduleState scheduleState(String scheduleId) {
+      public void deleteSchedules(Id.Program programId, SchedulableProgramType programType) {
+      }
+
+      @Override
+      public ScheduleState scheduleState(Id.Program program, SchedulableProgramType programType, String scheduleName) {
         return ScheduleState.NOT_FOUND;
       }
     };

@@ -1,5 +1,5 @@
 /*
- * Copyright © 2014 Cask Data, Inc.
+ * Copyright © 2014-2015 Cask Data, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not
  * use this file except in compliance with the License. You may obtain a copy of
@@ -20,6 +20,7 @@ import co.cask.cdap.api.ProgramSpecification;
 import co.cask.cdap.app.ApplicationSpecification;
 import co.cask.cdap.app.runtime.ProgramRuntimeService;
 import co.cask.cdap.app.store.Store;
+import co.cask.cdap.common.conf.Constants;
 import co.cask.cdap.gateway.auth.Authenticator;
 import co.cask.cdap.gateway.handlers.AuthenticatedHttpHandler;
 import co.cask.cdap.internal.UserErrors;
@@ -33,14 +34,12 @@ import com.google.common.base.Charsets;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableMultimap;
 import com.google.common.collect.Lists;
 import com.google.gson.Gson;
 import com.google.gson.JsonSyntaxException;
 import com.google.gson.reflect.TypeToken;
 import org.jboss.netty.buffer.ChannelBuffer;
 import org.jboss.netty.buffer.ChannelBufferInputStream;
-import org.jboss.netty.handler.codec.http.HttpHeaders;
 import org.jboss.netty.handler.codec.http.HttpRequest;
 import org.jboss.netty.handler.codec.http.HttpResponseStatus;
 import org.slf4j.Logger;
@@ -68,6 +67,57 @@ public abstract class AbstractAppFabricHttpHandler extends AuthenticatedHttpHand
   private static final Gson GSON = new Gson();
 
   protected static final java.lang.reflect.Type STRING_MAP_TYPE = new TypeToken<Map<String, String>>() { }.getType();
+
+  /**
+   * Name of the header that should specify the application archive
+   */
+  public static final String ARCHIVE_NAME_HEADER = "X-Archive-Name";
+
+  /**
+   * Class to represent status of programs.
+   */
+  protected static final class AppFabricServiceStatus {
+
+    public static final AppFabricServiceStatus OK = new AppFabricServiceStatus(HttpResponseStatus.OK, "");
+
+    public static final AppFabricServiceStatus PROGRAM_STILL_RUNNING =
+      new AppFabricServiceStatus(HttpResponseStatus.FORBIDDEN, "Program is still running");
+
+    public static final AppFabricServiceStatus PROGRAM_ALREADY_RUNNING =
+      new AppFabricServiceStatus(HttpResponseStatus.CONFLICT, "Program is already running");
+
+    public static final AppFabricServiceStatus PROGRAM_ALREADY_STOPPED =
+      new AppFabricServiceStatus(HttpResponseStatus.CONFLICT, "Program already stopped");
+
+    public static final AppFabricServiceStatus RUNTIME_INFO_NOT_FOUND =
+      new AppFabricServiceStatus(HttpResponseStatus.CONFLICT,
+                                 UserMessages.getMessage(UserErrors.RUNTIME_INFO_NOT_FOUND));
+
+    public static final AppFabricServiceStatus PROGRAM_NOT_FOUND =
+      new AppFabricServiceStatus(HttpResponseStatus.NOT_FOUND, "Program not found");
+
+    public static final AppFabricServiceStatus INTERNAL_ERROR =
+      new AppFabricServiceStatus(HttpResponseStatus.INTERNAL_SERVER_ERROR, "Internal server error");
+
+    private final HttpResponseStatus code;
+    private final String message;
+
+    /**
+     * Describes the output status of app fabric operations.
+     */
+    public AppFabricServiceStatus(HttpResponseStatus code, String message) {
+      this.code = code;
+      this.message = message;
+    }
+
+    public HttpResponseStatus getCode() {
+      return code;
+    }
+
+    public String getMessage() {
+      return message;
+    }
+  }
 
   public AbstractAppFabricHttpHandler(Authenticator authenticator) {
     super(authenticator);
@@ -111,30 +161,27 @@ public abstract class AbstractAppFabricHttpHandler extends AuthenticatedHttpHand
     }
   }
 
-  protected final void programList(HttpRequest request, HttpResponder responder,
-                                   ProgramType type, @Nullable String applicationId, Store store) {
+  protected final void programList(HttpResponder responder, String namespaceId, ProgramType type,
+                                   @Nullable String applicationId, Store store) {
     if (applicationId != null && applicationId.isEmpty()) {
       responder.sendString(HttpResponseStatus.BAD_REQUEST, "Application id is empty");
       return;
     }
 
     try {
-      String accountId = getAuthenticatedAccountId(request);
       List<ProgramRecord> programRecords;
       if (applicationId == null) {
-        Id.Account accId = Id.Account.from(accountId);
+        Id.Namespace accId = Id.Namespace.from(namespaceId);
         programRecords = listPrograms(accId, type, store);
       } else {
-        Id.Application appId = Id.Application.from(accountId, applicationId);
+        Id.Application appId = Id.Application.from(namespaceId, applicationId);
         programRecords = listProgramsByApp(appId, type, store);
       }
 
       if (programRecords == null) {
         responder.sendStatus(HttpResponseStatus.NOT_FOUND);
       } else {
-        String result = GSON.toJson(programRecords);
-        responder.sendByteArray(HttpResponseStatus.OK, result.getBytes(Charsets.UTF_8),
-                                ImmutableMultimap.of(HttpHeaders.Names.CONTENT_TYPE, "application/json"));
+        responder.sendJson(HttpResponseStatus.OK, programRecords);
       }
     } catch (SecurityException e) {
       responder.sendStatus(HttpResponseStatus.UNAUTHORIZED);
@@ -144,14 +191,15 @@ public abstract class AbstractAppFabricHttpHandler extends AuthenticatedHttpHand
     }
   }
 
-  protected final List<ProgramRecord> listPrograms(Id.Account accId, ProgramType type, Store store) throws Exception {
+  protected final List<ProgramRecord> listPrograms(Id.Namespace namespaceId, ProgramType type, Store store)
+    throws Exception {
     try {
-      Collection<ApplicationSpecification> appSpecs = store.getAllApplications(accId);
+      Collection<ApplicationSpecification> appSpecs = store.getAllApplications(namespaceId);
       return listPrograms(appSpecs, type);
     } catch (Throwable throwable) {
       LOG.warn(throwable.getMessage(), throwable);
-      String errorMessage = String.format("Could not retrieve application spec for %s, reason: %s",
-                                           accId.toString(), throwable.getMessage());
+      String errorMessage = String.format("Could not retrieve application spec for namespace '%s', reason: %s",
+                                           namespaceId.toString(), throwable.getMessage());
       throw new Exception(errorMessage, throwable);
     }
   }
@@ -167,7 +215,7 @@ public abstract class AbstractAppFabricHttpHandler extends AuthenticatedHttpHand
       return appSpec == null ? null : listPrograms(Collections.singletonList(appSpec), type);
     } catch (Throwable throwable) {
       LOG.warn(throwable.getMessage(), throwable);
-      String errorMessage = String.format("Could not retrieve application spec for %s, reason: %s",
+      String errorMessage = String.format("Could not retrieve application spec for application id '%s', reason: %s",
                                           appId.toString(), throwable.getMessage());
       throw new Exception(errorMessage, throwable);
     }
@@ -215,15 +263,15 @@ public abstract class AbstractAppFabricHttpHandler extends AuthenticatedHttpHand
     return new ProgramRecord(type, appId, spec.getName(), spec.getName(), spec.getDescription());
   }
 
-  protected ProgramRuntimeService.RuntimeInfo findRuntimeInfo(String accountId, String appId,
+  protected ProgramRuntimeService.RuntimeInfo findRuntimeInfo(String namespaceId, String appId,
                                                               String flowId, ProgramType typeId,
                                                               ProgramRuntimeService runtimeService) {
     ProgramType type = ProgramType.valueOf(typeId.name());
     Collection<ProgramRuntimeService.RuntimeInfo> runtimeInfos = runtimeService.list(type).values();
     Preconditions.checkNotNull(runtimeInfos, UserMessages.getMessage(UserErrors.RUNTIME_INFO_NOT_FOUND),
-                               accountId, flowId);
+                               namespaceId, flowId);
 
-    Id.Program programId = Id.Program.from(accountId, appId, flowId);
+    Id.Program programId = Id.Program.from(namespaceId, appId, flowId);
 
     for (ProgramRuntimeService.RuntimeInfo info : runtimeInfos) {
       if (programId.equals(info.getProgramId())) {
@@ -233,16 +281,12 @@ public abstract class AbstractAppFabricHttpHandler extends AuthenticatedHttpHand
     return null;
   }
 
-  protected void getLiveInfo(HttpRequest request, HttpResponder responder,
+  protected void getLiveInfo(HttpRequest request, HttpResponder responder, String namespaceId,
                              final String appId, final String programId, ProgramType type,
                              ProgramRuntimeService runtimeService) {
     try {
-      String accountId = getAuthenticatedAccountId(request);
       responder.sendJson(HttpResponseStatus.OK,
-                         runtimeService.getLiveInfo(Id.Program.from(accountId,
-                                                                    appId,
-                                                                    programId),
-                                                    type));
+                         runtimeService.getLiveInfo(Id.Program.from(namespaceId, appId, programId), type));
     } catch (SecurityException e) {
       responder.sendStatus(HttpResponseStatus.UNAUTHORIZED);
     } catch (Throwable e) {
@@ -267,5 +311,20 @@ public abstract class AbstractAppFabricHttpHandler extends AuthenticatedHttpHand
       return true;
     }
     return false;
+  }
+
+  /**
+   * Updates the request URI to its v3 URI before delegating the call to the corresponding v3 handler.
+   * Note: This piece of code is duplicated in LogHandler, but its ok since this temporary, till we
+   * support v2 APIs
+   *
+   * @param request the original {@link HttpRequest}
+   * @return {@link HttpRequest} with modified URI
+   */
+  public HttpRequest rewriteRequest(HttpRequest request) {
+    String originalUri = request.getUri();
+    request.setUri(originalUri.replaceFirst(Constants.Gateway.API_VERSION_2, Constants.Gateway.API_VERSION_3 +
+      "/namespaces/" + Constants.DEFAULT_NAMESPACE));
+    return request;
   }
 }

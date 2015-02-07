@@ -1,6 +1,6 @@
 .. meta::
     :author: Cask Data, Inc.
-    :copyright: Copyright © 2014 Cask Data, Inc.
+    :copyright: Copyright © 2014-2015 Cask Data, Inc.
 
 .. _user-services:
 
@@ -57,7 +57,8 @@ Service Handlers
 ``ServiceHandler``\s are used to handle and serve HTTP requests.
 
 You add handlers to your Service by calling the ``addHandler`` method in the Service's
-``configure`` method, as shown above.
+``configure`` method, as shown above. Only handler classes that are declared public,
+with public methods for endpoints, will be exposed by the Service.
 
 To use a Dataset within a handler, specify the Dataset by calling the ``useDataset``
 method in the Service's ``configure`` method and include the ``@UseDataSet`` annotation in
@@ -146,8 +147,8 @@ accessed—by other programs.
 Service are announced using the name passed in the ``configure`` method. The *application name*, *service id*, and
 *hostname* required for registering the Service are automatically obtained.
 
-The Service can then be discovered in Flows, Procedures, MapReduce Jobs, Spark Programs, and other Services using
-appropriate program contexts. You may also access Services in a different Application
+The Service can then be discovered in a Flow, Procedure, MapReduce, Spark, or other Service using
+the appropriate program context. You may also access a Service in a different Application
 by specifying the Application name in the ``getServiceURL`` call.
 
 For example, in Flows::

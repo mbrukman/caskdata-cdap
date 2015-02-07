@@ -1,6 +1,7 @@
 .. :author: Cask Data, Inc.
-   :copyright: Copyright © 2014 Cask Data, Inc.
+   :copyright: Copyright © 2014-2015 Cask Data, Inc.
 
+:hide-nav: true
 :orphan:
 
 .. _glossary:
@@ -33,20 +34,20 @@ Glossary
       data objects from their inputs and execute custom logic on each data object, able to
       perform data operations as well as emit data objects to the Flowlet’s outputs.
       
-   MapReduce Job
-      MapReduce is a processing model used to process data in batch. MapReduce jobs can be
+   MapReduce
+      MapReduce is a processing model used to process data in batch. MapReduce programs can be
       written as in a conventional Apache Hadoop system. CDAP Datasets can be accessed
-      from MapReduce jobs as both input and output.
+      from MapReduce programs as both input and output.
       
    Workflow
-      A Workflow is used to execute a series of MapReduce Jobs, with an optional schedule
+      A Workflow is used to execute a series of MapReduce programs, with an optional schedule
       to run itself periodically.
       
-   Spark Job
+   Spark
       Spark is a fast and general processing engine, compatible with Hadoop data, used for
       in-memory cluster computing. It lets you load large sets of data into memory and
       query them repeatedly, making it suitable for both iterative and interactive
-      programs. Similar to MapReduce, Spark can access Datasets as both input and output.
+      programs. Similar to :term:`MapReduce`, Spark can access Datasets as both input and output.
       Spark programs in CDAP can be written in either Java or Scala.
 
    Service
@@ -71,7 +72,19 @@ Glossary
       
    CDAP
       The Cask Data Application Platform; refers to both the platform, and an installed instance of it.
-      
+
+   Standalone CDAP
+      A version of the Cask Data Application Platform, supplied as a downloadable SDK,
+      that runs on a single machine in a single Java Virtual Machine (JVM). It provides
+      all of the CDAP APIs without requiring a Hadoop cluster, using alternative,
+      fully-functional implementations of CDAP features. For example, application
+      containers are implemented as Java threads instead of YARN containers.
+
+   Distributed CDAP
+      A version of the Cask Data Application Platform, supplied as either Yum ``.rpm`` or
+      APT ``.deb`` packages, that runs on a :term:`Hadoop` cluster. Packages are available
+      for *Ubuntu 12* and *CentOS 6*.
+
    Hadoop
       Refers to the `Apache™ Hadoop® <http://hadoop.apache.org>`__ project, which describes
       itself as:
@@ -92,10 +105,14 @@ Glossary
       query and manage the Cask Data Application Platform instance.
 
    Apache Spark
-      See :term:`Spark Job`.
+      See :term:`Spark Program <spark>`.
 
    Apache Hadoop
       See :term:`Hadoop`.
+
+   Avro
+      Refers to the `Apache Avro™ <http://avro.apache.org>`__ project, which is a
+      data serialization system that provides rich data structures and a compact, fast, binary data format.
 
 
 
@@ -107,3 +124,4 @@ Glossary
 
 .. Apache |(TM)| Hadoop |(R)|
 .. Apache™ Hadoop®
+

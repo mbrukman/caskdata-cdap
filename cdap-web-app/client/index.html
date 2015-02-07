@@ -137,7 +137,7 @@
       {{outlet}}
 
     </div>
-    <div id="footer" style="clear: both;"><span id="copyright">COPYRIGHT &copy; 2014 CASK DATA INC. ALL RIGHTS RESERVED.</span><br />
+    <div id="footer" style="clear: both;"><span id="copyright">COPYRIGHT &copy; 2014-2015 CASK DATA INC. ALL RIGHTS RESERVED.</span><br />
 
     <a href="http://cask.co/company/terms" target="_blank" id="footer-terms" target="blank">Terms</a>
     <span>&nbsp;·&nbsp;</span>
@@ -172,7 +172,7 @@
               <li>using a Procedure to query a DataSet to obtain the results.</li>
             </ol>
 
-            <p>These are the basics of Cask's Data Application Platform.</p>
+            <p>These are the basics of the Cask Data Application Platform.</p>
             <p>For a programming quickstart, follow the <a target="_blank" href="http://www.cask.co/resources/">instructions online</a> about modifying the code and redeploying the app.</p>
 
           </div>
@@ -756,7 +756,7 @@
             <h1>Usage</h1>
             <br />
             <div class="alert alert-info">
-              This is a long lasting Access Token that you can use to authenticate against CDAP. Access Tokens are used to identify and authenticate users.
+              This is a long-lasting Access Token that you can use to authenticate against CDAP. Access Tokens are used to identify and authenticate users.
             </div>
             <br />
             <table class="table" role="table">
@@ -769,7 +769,7 @@
               <tr>
                 <td class="bolder-font">Step 2</td>
                 <td>
-                  Save the downloaded file as ".cdap.accesstoken" under your home directory (~/).
+                  Save the downloaded file as ".cdap.accesstoken" in your home directory (~/).
                 </td>
               </tr>
               <tr>
@@ -1085,13 +1085,14 @@
             {{#each elements.Action}}
             <div class="batch-item" {{bindAttr id="divId"}} {{action loadAction this}} style="cursor: pointer;">
               <div class="batch-icon batch-map">
+                {{programType}}
                 <div class="info-window">
                   {{#if running}}
                     <div class="window-icon running"></div>
                   {{else}}
                     <div class="window-icon"></div>
                   {{/if}}
-                  <div class="batch-phase">{{name}}</div>
+                  <div class="batch-phase">{{programName}}</div>
                 </div>
               </div>
             </div>
@@ -1121,7 +1122,7 @@
             </thead>
             <tbody>
             {{#each runs}}
-              <tr class="run-list" {{action "loadRun" runid}}>
+              <tr class="run-list">
                 <td>{{started}}<div class="flow-run-date"> {{startDate}} </div></td>
                 <td>{{ended}} <div class="flow-run-date"> {{endDate}}</div></td>
                 <td>{{detail}}</td>
@@ -1154,7 +1155,7 @@
       </ul>
       <h1>
         <span>Mapreduce</span>
-        <span class="breadcrumb-app-name"><a {{bindAttr href="model.appHref"}}>{{model.app}}</a> : {{model.name}}
+        <span class="breadcrumb-app-name"><a {{bindAttr href="model.appHref"}}>{{model.app}}</a> : {{model.programName}}
         </span>
       </h1>
     </div>
@@ -1294,31 +1295,18 @@
     </div>
     <div id="panels">
       <div class="panel">
-        <div class="sparks-metrics clearfix chart">
-            <div class="spark-metrics-item">
-              <div class="spark-icon spark-metrics-block">
-                <div class="info-window">
-                  <div class="metrics-phase">BLOCKS</div>
-                  <div class="mapper-icon"></div>
-                  <div class="metric-row">{{model.metricsData.blockRemainingMemory}}MB Remaining</div>
-                  <div class="metric-row">{{model.metricsData.blockMaxMemory}}MB Max Available</div>
-                  <div class="metric-row">{{model.metricsData.blockUsedMemory}}MB Used</div>
-                  <div class="metric-row">{{model.metricsData.blockDiskSpaceUsed}}MB Used on disk</div>
-                </div>
-              </div>
-            </div>
-            <div class="spark-metrics-item">
-              <div class="spark-icon spark-metrics-scheduler">
-                <div class="info-window">
-                  <div class="metrics-phase">SCHEDULER</div>
-                  <div class="reducer-icon"></div>
-                  <div class="metric-row">{{model.metricsData.schedulerActiveJobs}} Active Jobs</div>
-                  <div class="metric-row">{{model.metricsData.schedulerAllJobs}} Total Jobs</div>
-                  <div class="metric-row">{{model.metricsData.schedulerFailedStages}} Failed Stages</div>
-                  <div class="metric-row">{{model.metricsData.schedulerWaitingStages}} Waiting stages</div>
-                </div>
-              </div>
-            </div>
+        <div class="sparks-metrics clearfix">
+          <div class="spark-metrics-storage">
+            <div class="title-storage">STORAGE</div>
+            <div class="metric-row">{{model.metricsData.blockRemainingMemory}}MB Remaining</div>
+            <div class="metric-row">{{model.metricsData.blockMaxMemory}}MB Max Available</div>
+            <div class="metric-row">{{model.metricsData.blockUsedMemory}}MB Used</div>
+            <div class="metric-row">{{model.metricsData.blockDiskSpaceUsed}}MB Used on disk</div>
+          </div>
+          <div class="spark-metrics-stages">
+            <div class="title-stage">STAGES</div>
+            {{view C.Embed.StackedProgress}}
+          </div>
         </div>
       </div>
     </div>
@@ -1623,7 +1611,7 @@
             </thead>
             <tbody>
             {{#each runs}}
-              <tr class="run-list" {{action "loadRun" runid}}>
+              <tr class="run-list">
                 <td>{{started}}<div class="flow-run-date"> {{startDate}} </div></td>
                 <td>{{ended}} <div class="flow-run-date"> {{endDate}}</div></td>
                 <td>{{detail}}</td>
@@ -2289,6 +2277,17 @@
           Please wait.
         </div>
       </div>
+    </div>
+  </script>
+
+  <script type="text/x-handlebars" data-template-name="SparkMetricsProgressBar">
+    <div class="progress stage-status-line">
+      <div data-toggle="tooltip" data-placement="top" title="Running" class="progress-bar running"
+       {{bindAttr style=view.runningWidth}}>{{model.metricsData.schedulerRunningStages}}</div>
+      <div data-toggle="tooltip" data-placement="bottom" title="Failed" class="progress-bar failed"
+       {{bindAttr style=view.failedWidth}}>{{model.metricsData.schedulerFailedStages}}</div>
+      <div data-toggle="tooltip" data-placement="top" title="Waiting" class="progress-bar waiting"
+       {{bindAttr style=view.waitingWidth}}>{{model.metricsData.schedulerWaitingStages}}</div>
     </div>
   </script>
 

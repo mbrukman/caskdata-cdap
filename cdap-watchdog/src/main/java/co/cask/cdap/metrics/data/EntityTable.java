@@ -26,6 +26,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.concurrent.ExecutionException;
+import javax.annotation.Nullable;
 
 /**
  * This class handle assignment of unique ID to entity name, persisted by a OVCTable.
@@ -59,12 +60,12 @@ public final class EntityTable {
 
 
   /**
-   * Creates an EntityTable with max id = 65535.
+   * Creates an EntityTable with max id = 16777215.
    *
    * See {@link #EntityTable(MetricsTable, long)}.
    */
   public EntityTable(MetricsTable table) {
-    this(table, 0x10000);
+    this(table, 0x1000000L);
   }
 
   /**
@@ -86,10 +87,13 @@ public final class EntityTable {
 
   /**
    * Returns an unique id for the given name.
-   * @param name The {@link EntityName} to lookup.
+   * @param name The {@link EntityName} to lookup. Can be {@code null}, which is treated as a normal value.
    * @return Unique ID, it is guaranteed to be smaller than the maxId passed in constructor.
    */
-  public long getId(String type, String name) {
+  public long getId(String type, @Nullable String name) {
+    if (name == null) {
+      return 0;
+    }
     return entityCache.getUnchecked(new EntityName(type, name)) % maxId;
   }
 
@@ -97,10 +101,14 @@ public final class EntityTable {
    * Returns the entity name for the given id and type.
    * @param id The id to lookup
    * @param type The type of the entity.
-   * @return The entity name with the given id assigned to.
+   * @return The entity name with the given id assigned to or {@code null} if given id is an encoded null value
    * @throws IllegalArgumentException if the given ID does not map to any name.
    */
+  @Nullable
   public String getName(long id, String type) {
+    if (id == 0) {
+      return null;
+    }
     try {
       return idCache.get(new EntityId(id, type)).getName();
     } catch (ExecutionException e) {
@@ -134,9 +142,9 @@ public final class EntityTable {
 
         /* we recycle the id's after reaching max-id to let the id's start from 1 again.
         this most likely won't happen for any entity other than run-id,
-        Even for run-id - its okay to recycle, as we would have truncated the old data when we reach 65k runs,
-        as our TTL is only 2 hours currently. The reasoning is the likelihood for running 65k programs
-        under 2 hours is very low. For mapping the id -> name , we use (id % maxId) */
+        Even for run-id - its okay to recycle, as we would have truncated the old data when we reach 16777215 runs,
+        as our max TTL is 30 days currently. The reasoning is the likelihood for running 16777215 programs
+        under 30 days is low. For mapping the id -> name , we use (id % maxId) */
         if (newId % maxId == 0) {
           newId = 1L;
           table.swap(maxIdRowKey, MAX_ID, Bytes.toBytes(maxId), Bytes.toBytes(newId));

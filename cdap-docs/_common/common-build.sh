@@ -76,11 +76,17 @@ SDK_JAVADOCS="$PROJECT_PATH/$API/target/site/$APIDOCS"
 
 CHECK_INCLUDES="false"
 TEST_INCLUDES_LOCAL="local"
+TEST_INCLUDES_REMOTE="remote"
 if [ "x$3" == "x" ]; then
-  TEST_INCLUDES="remote"
+  TEST_INCLUDES="$TEST_INCLUDES_REMOTE"
 else
   TEST_INCLUDES="$3"
 fi
+
+RED='\033[0;31m'
+BOLD='\033[1m'
+NC='\033[0m'
+WARNING="${RED}${BOLD}WARNING:${NC}"
 
 ZIP_FILE_NAME=$HTML
 ZIP="$ZIP_FILE_NAME.zip"
@@ -112,14 +118,13 @@ function usage() {
   echo "    javadocs       Clean build of javadocs ($API module only) for SDK and website"
   echo "    javadocs-full  Clean build of javadocs for all modules"
   echo "    license-pdfs   Clean build of License Dependency PDFs"
-  echo "    zip            Zips docs into $ZIP"
   echo ""
   echo "    check-includes Check if included files have changed from source"
   echo "    depends        Build Site listing dependencies"
   echo "    sdk            Build SDK"
   echo "  with"
   echo "    source         Path to $PROJECT source for javadocs, if not $PROJECT_PATH"
-  echo "    test_includes  local or remote (default: remote); must specify source if used"
+  echo "    test_includes  local, remote or neither (default: remote); must specify source if used"
   echo " "
 #   exit 1
 }
@@ -190,39 +195,20 @@ function copy_license_pdfs() {
   cp $SCRIPT_PATH/$LICENSES_PDF/* .
 }
 
-function make_zip_html() {
-  version
-  ZIP_FILE_NAME="$PROJECT-docs-$PROJECT_VERSION.zip"
-  cd $SCRIPT_PATH/$BUILD
-  zip -qr $ZIP_FILE_NAME $HTML/*
-}
-
 function make_zip() {
-# This creates a zip that unpacks to the same name
   version
   if [ "x$1" == "x" ]; then
     ZIP_DIR_NAME="$PROJECT-docs-$PROJECT_VERSION"
   else
     ZIP_DIR_NAME="$PROJECT-docs-$PROJECT_VERSION-$1"
-  fi  
-  cd $SCRIPT_PATH/$BUILD
-  mkdir $ZIP_DIR_NAME
-  mv $HTML $ZIP_DIR_NAME/en
-  # Add a redirect index.html file
-  echo "$REDIRECT_EN_HTML" > $ZIP_DIR_NAME/index.html
-  zip -qr $ZIP_DIR_NAME.zip $ZIP_DIR_NAME/*
-}
-
-function make_zip_localized() {
-# This creates a named zip that unpacks to the Project Version, localized to english
-  version
-  ZIP_DIR_NAME="$PROJECT-docs-$PROJECT_VERSION-$1"
+  fi
   cd $SCRIPT_PATH/$BUILD
   mkdir $PROJECT_VERSION
   mv $HTML $PROJECT_VERSION/en
   # Add a redirect index.html file
   echo "$REDIRECT_EN_HTML" > $PROJECT_VERSION/index.html
-  zip -qr $ZIP_DIR_NAME.zip $PROJECT_VERSION/*
+  # Zip everything
+  zip -qr $ZIP_DIR_NAME.zip $PROJECT_VERSION/* --exclude .DS_Store
 }
 
 function build_extras() {
@@ -258,7 +244,7 @@ function check_includes() {
       # Test included files
       test_includes
     else
-      echo "WARNING: pandoc is not installed; checked-in includes will be used instead."
+      echo -e "$WARNING pandoc is not installed; checked-in includes will be used instead."
     fi
   else
     echo "No includes to be checked."
@@ -274,11 +260,16 @@ function test_an_include() {
   BUILD_INCLUDES_DIR=$SCRIPT_PATH/$BUILD/$INCLUDES
   SOURCE_INCLUDES_DIR=$SCRIPT_PATH/$SOURCE/$INCLUDES
   EXAMPLE=$1
-  if diff -q $BUILD_INCLUDES_DIR/$1 $SOURCE_INCLUDES_DIR/$1 2>/dev/null; then
-    echo "Tested $1; matches checked-in include file."
+  if [ "x$TEST_INCLUDES" == "x$TEST_INCLUDES_LOCAL" -o "x$TEST_INCLUDES" == "x$TEST_INCLUDES_REMOTE" ]; then
+    if diff -q $BUILD_INCLUDES_DIR/$1 $SOURCE_INCLUDES_DIR/$1 2>/dev/null; then
+      echo "Tested $1; matches checked-in include file."
+    else
+      echo -e "$WARNING Tested $1; does not match checked-in include file. Copying to source directory."
+      cp -f $BUILD_INCLUDES_DIR/$1 $SOURCE_INCLUDES_DIR/$1
+    fi
   else
-    echo "WARNING: Tested $1; does not match checked-in include file. Copying to source directory."
-    cp -f $BUILD_INCLUDES_DIR/$1 $SOURCE_INCLUDES_DIR/$1
+    echo -e "$WARNING Not testing includes: using checked-in version..."
+    cp -f $SOURCE_INCLUDES_DIR/$1 $BUILD_INCLUDES_DIR/$1
   fi
 }
 
@@ -290,7 +281,7 @@ function build_includes() {
     mkdir $SOURCE_INCLUDES_DIR
     pandoc_includes $SOURCE_INCLUDES_DIR
   else
-    echo "WARNING: pandoc not installed; checked-in README includes will be used instead."
+    echo -e "$WARNING pandoc not installed; checked-in README includes will be used instead."
   fi
 }
 
@@ -319,41 +310,59 @@ function version() {
   PROJECT_VERSION=`grep "<version>" pom.xml`
   PROJECT_VERSION=${PROJECT_VERSION#*<version>}
   PROJECT_VERSION=${PROJECT_VERSION%%</version>*}
+  PROJECT_SHORT_VERSION=`expr "$PROJECT_VERSION" : '\([0-9]*\.[0-9]*\)'`
   IFS=/ read -a branch <<< "`git rev-parse --abbrev-ref HEAD`"
+  GIT_BRANCH_TYPE="${branch[0]}"
   GIT_BRANCH="${branch[1]}"
 }
 
 function display_version() {
   version
+  echo ""
   echo "PROJECT_PATH: $PROJECT_PATH"
   echo "PROJECT_VERSION: $PROJECT_VERSION"
+  echo "PROJECT_SHORT_VERSION: $PROJECT_SHORT_VERSION"
+  echo "GIT_BRANCH_TYPE: $GIT_BRANCH_TYPE"
   echo "GIT_BRANCH: $GIT_BRANCH"
-}
-
-function test() {
-  echo "Test..."
-  echo "Version..."
-  display_version
-#   echo "Build all docs..."
-#   build
-#   echo "Build SDK..."
-#   build_sdk
-  echo "Test completed."
+  echo ""
 }
 
 function rewrite() {
-  # Substitutes text in file $1 and outputting to file $2, replacing text $3 with text $4.
+  # Substitutes text in file $1 and outputting to file $2, replacing text $3 with text $4
+  # or if $4=="", substitutes text in-place in file $1, replacing text $2 with text $3
+  # or if $3 & $4=="", substitutes text in-place in file $1, using sed command $2
   cd $SCRIPT_PATH
   local rewrite_source=$1
-  local rewrite_target=$2
-  local sub_string=$3
-  local new_sub_string=$4  
   echo "Re-writing"
   echo "    $rewrite_source"
-  echo "  to"
-  echo "    $rewrite_target"
-  echo "  $sub_string -> $new_sub_string "
-  sed -e "s|$sub_string|$new_sub_string|g" $rewrite_source > $rewrite_target
+  if [ "x$3" == "x" ]; then
+    local sub_string=$2
+    echo "  $sub_string"
+    if [ "$(uname)" == "Darwin" ]; then
+      sed -i '.bak' "$sub_string" $rewrite_source
+      rm $rewrite_source.bak
+    else
+      sed -i "$sub_string" $rewrite_source
+    fi
+  elif [ "x$4" == "x" ]; then
+    local sub_string=$2
+    local new_sub_string=$3
+    echo "  $sub_string -> $new_sub_string "
+    if [ "$(uname)" == "Darwin" ]; then
+      sed -i '.bak' "s|$sub_string|$new_sub_string|g" $rewrite_source
+      rm $rewrite_source.bak
+    else
+      sed -i "s|$sub_string|$new_sub_string|g" $rewrite_source
+    fi
+  else
+    local rewrite_target=$2
+    local sub_string=$3
+    local new_sub_string=$4
+    echo "  to"
+    echo "    $rewrite_target"
+    echo "  $sub_string -> $new_sub_string "
+    sed -e "s|$sub_string|$new_sub_string|g" $rewrite_source > $rewrite_target
+  fi
 }
 
 function run_command() {
@@ -373,8 +382,6 @@ function run_command() {
     depends )           build_dependencies; exit 1;;
     sdk )               build_sdk; exit 1;;
     version )           display_version; exit 1;;
-    test )              test; exit 1;;
-    zip )               make_zip; exit 1;;
     * )                 usage; exit 1;;
   esac
 }

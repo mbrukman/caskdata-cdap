@@ -31,6 +31,14 @@ define(['core/models/program'], function (Program) {
 
     }.property('app', 'name'),
 
+    /**
+     * Gets context for schedules.
+     * @return {String} schedule context.
+     */
+    schedulesContext: function () {
+      return this.interpolate('apps/{parent}');      
+    }.property('app', 'name'),
+
     interpolate: function (path) {
 
       return path.replace(/\{parent\}/, this.get('app'))
@@ -39,12 +47,16 @@ define(['core/models/program'], function (Program) {
     },
 
     startStopDisabled: function () {
+      var enableStates = [
+        'STOPPED',
+        'RUNNING'
+      ];
 
-      if (this.currentState !== 'STOPPED') {
-        return true;
+      if (-1 !== enableStates.indexOf(this.currentState)) {
+        return false;
       }
-      return false;
 
+      return true;
     }.property('currentState')
 
   });
