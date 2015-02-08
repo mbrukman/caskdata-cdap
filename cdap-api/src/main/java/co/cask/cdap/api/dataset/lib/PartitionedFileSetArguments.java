@@ -83,8 +83,8 @@ public class PartitionedFileSetArguments {
     for (Map.Entry<String, PartitionFilter.Condition<? extends Comparable>> entry : filter.getConditions().entrySet()) {
       String fieldName = entry.getKey();
       PartitionFilter.Condition<? extends Comparable> condition = entry.getValue();
-      if (condition.getLower() == condition.getUpper()) {
-        arguments.put(INPUT_PARTITION_VALUE_PREFIX + fieldName, condition.getLower().toString());
+      if (condition.isSingleValue()) {
+        arguments.put(INPUT_PARTITION_VALUE_PREFIX + fieldName, condition.getValue().toString());
       } else {
         if (condition.getLower() != null) {
           arguments.put(INPUT_PARTITION_LOWER_PREFIX + fieldName, condition.getLower().toString());

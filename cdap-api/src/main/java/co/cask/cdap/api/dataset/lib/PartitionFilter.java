@@ -130,7 +130,7 @@ public class PartitionFilter {
       if (map.containsKey(field)) {
         throw new IllegalArgumentException(String.format("Field '%s' already exists in partition filter.", field));
       }
-      map.put(field, new Condition<T>(field, value, value));
+      map.put(field, new Condition<T>(field, value));
       return this;
     }
 
@@ -147,8 +147,7 @@ public class PartitionFilter {
 
   /**
    * Represents a condition on a partitioning field, by means of an inclusive lower bound and an exclusive upper bound.
-   * As a special case, if upper and lower bound are identical (not just equal), then this represents a condition
-   * of equality with that value.
+   * As a special case, if only one value is passed to the constructor, then this represents an equality filter.
    * @param <T> The type of the partitioning field.
    */
   public static class Condition<T extends Comparable<T>> {
@@ -156,12 +155,29 @@ public class PartitionFilter {
     private String fieldName;
     private final T lower;
     private final T upper;
+    private final boolean isSingleValue;
 
     private Condition(String fieldName, T lower, T upper) {
       Preconditions.checkArgument(lower != null || upper != null, "Either lower or upper-bound must be non-null.");
       this.fieldName = fieldName;
       this.lower = lower;
       this.upper = upper;
+      this.isSingleValue = false;
+    }
+
+    private Condition(String fieldName, T value) {
+      Preconditions.checkArgument(value != null, "Value must not be null.");
+      this.fieldName = fieldName;
+      this.lower = value;
+      this.upper = null;
+      this.isSingleValue = true;
+    }
+
+    /**
+     * @return the expected value of this condition
+     */
+    public T getValue() {
+      return lower;
     }
 
     /**
@@ -182,7 +198,7 @@ public class PartitionFilter {
      * @return whether this condition matches a single value
      */
     public boolean isSingleValue() {
-      return lower == upper;
+      return isSingleValue;
     }
 
     /**
@@ -193,8 +209,8 @@ public class PartitionFilter {
     public <V extends Comparable> boolean match(V value) {
       try {
         // if lower and upper are identical, then this represents an equality condition.
-        if (lower == upper) {
-          return lower.equals(value);
+        if (isSingleValue()) {
+          return getValue().equals(value);
         }
         @SuppressWarnings("unchecked")
         boolean matches =
@@ -219,10 +235,10 @@ public class PartitionFilter {
     @Override
     public String toString() {
       if (isSingleValue()) {
-        return fieldName + "==" + lower.toString();
+        return fieldName + "==" + getValue().toString();
       } else {
-        return fieldName + " in [" + (lower == null ? "null" : lower.toString())
-          + "..." + (upper == null ? "null" : upper.toString()) + "]";
+        return fieldName + " in [" + (getLower() == null ? "null" : getLower().toString())
+          + "..." + (getUpper() == null ? "null" : getUpper().toString()) + "]";
       }
     }
   }

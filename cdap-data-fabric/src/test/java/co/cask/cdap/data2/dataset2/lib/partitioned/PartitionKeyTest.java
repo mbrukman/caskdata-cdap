@@ -42,7 +42,7 @@ public class PartitionKeyTest {
 
   @Test(expected = IllegalArgumentException.class)
   public void testBuilderNullValue() {
-    PartitionKey.builder().addField("x", null).build();
+    PartitionKey.builder().addStringField("x", null).build();
   }
 
   @Test(expected = IllegalArgumentException.class)

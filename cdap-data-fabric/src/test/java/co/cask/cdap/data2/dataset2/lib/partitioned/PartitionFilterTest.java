@@ -56,14 +56,14 @@ public class PartitionFilterTest {
 
   @Test(expected = IllegalArgumentException.class)
   public void testBuilderNullValue() {
-    PartitionFilter.builder().addValueCondition("x", null).build();
+    PartitionFilter.builder().<Long>addValueCondition("x", null).build();
   }
 
   @Test
   public void testBuilderNullRange() {
     PartitionFilter filter = PartitionFilter.builder()
       .addValueCondition("a", 1)
-      .addRangeCondition("x", null, null)
+      .<Long>addRangeCondition("x", null, null)
       .build();
     Assert.assertEquals(1, filter.getConditions().size()); // only the one for "a"
     Assert.assertNull(filter.getCondition("x"));
@@ -142,8 +142,6 @@ public class PartitionFilterTest {
   @Test(expected = IllegalArgumentException.class)
   public void testIncompatibleMatch() {
 
-    long minute = TimeUnit.MINUTES.toMillis(1);
-
     PartitionFilter filter = PartitionFilter.builder()
       .addValueCondition("year", 2012)
       .addRangeCondition("month", 4, 7)
@@ -164,7 +162,7 @@ public class PartitionFilterTest {
     PartitionFilter.Condition<? extends Comparable> condition = filter.getCondition(field);
     Assert.assertNotNull(condition);
     Assert.assertEquals(single, condition.isSingleValue());
-    Assert.assertTrue(type.validateType(condition.getLower()));
+    Assert.assertTrue(type.validateType(condition.getValue()));
     boolean expectMatch = true;
     for (T value : values) {
       if (value == null) {

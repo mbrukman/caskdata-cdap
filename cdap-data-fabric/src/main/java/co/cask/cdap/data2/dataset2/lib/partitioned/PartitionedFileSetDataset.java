@@ -370,7 +370,7 @@ public class PartitionedFileSetDataset extends AbstractDataset implements Partit
       byte[] bytes = fieldType.toBytes(upperValue);
       totalSize += bytes.length;
       values.add(bytes);
-      if (upperValue != condition.getLower()) {
+      if (!condition.isSingleValue()) {
         allSingleValue = false;
         break; // upper bound for this field, following fields don't matter
       }
