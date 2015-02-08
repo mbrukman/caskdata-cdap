@@ -60,11 +60,16 @@ public class PartitionFilter {
   public boolean match(PartitionKey partitionKey) {
     for (Map.Entry<String, Condition<? extends Comparable>> condition : getConditions().entrySet())  {
       Comparable value = partitionKey.getField(condition.getKey());
-      if (!condition.getValue().match(value)) {
+      if (value == null || !condition.getValue().match(value)) {
         return false;
       }
     }
     return true;
+  }
+
+  @Override
+  public String toString() {
+    return conditions.values().toString();
   }
 
   /**
@@ -105,7 +110,7 @@ public class PartitionFilter {
       if (null == lower && null == upper) { // filter is pointless if there is no bound
         return this;
       }
-      map.put(field, new Condition<T>(lower, upper));
+      map.put(field, new Condition<T>(field, lower, upper));
       return this;
     }
 
@@ -125,7 +130,7 @@ public class PartitionFilter {
       if (map.containsKey(field)) {
         throw new IllegalArgumentException(String.format("Field '%s' already exists in partition filter.", field));
       }
-      map.put(field, new Condition<T>(value, value));
+      map.put(field, new Condition<T>(field, value, value));
       return this;
     }
 
@@ -148,11 +153,13 @@ public class PartitionFilter {
    */
   public static class Condition<T extends Comparable<T>> {
 
+    private String fieldName;
     private final T lower;
     private final T upper;
 
-    private Condition(T lower, T upper) {
+    private Condition(String fieldName, T lower, T upper) {
       Preconditions.checkArgument(lower != null || upper != null, "Either lower or upper-bound must be non-null.");
+      this.fieldName = fieldName;
       this.lower = lower;
       this.upper = upper;
     }
@@ -198,8 +205,9 @@ public class PartitionFilter {
       } catch (ClassCastException e) {
         // this should never happen because we make sure that partition keys and filters
         // match the field types declared for the partitioning. But just to be sure:
-        throw new IllegalArgumentException("Can't compare value '" + value
-                                             + "' as an object of class " + determineClass());
+        throw new IllegalArgumentException("Incompatible partition filter: condition for field '" + fieldName +
+                                             "' is on " + determineClass() + " but partition key value '" + value
+                                             + "' is of " + value.getClass());
       }
     }
 
@@ -208,5 +216,14 @@ public class PartitionFilter {
       return lower != null ? lower.getClass() : upper.getClass();
     }
 
+    @Override
+    public String toString() {
+      if (isSingleValue()) {
+        return fieldName + "==" + lower.toString();
+      } else {
+        return fieldName + " in [" + (lower == null ? "null" : lower.toString())
+          + "..." + (upper == null ? "null" : upper.toString()) + "]";
+      }
+    }
   }
 }

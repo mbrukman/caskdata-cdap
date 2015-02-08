@@ -36,7 +36,7 @@ public class PartitionedFileSetModule implements DatasetModule {
     DatasetDefinition<Table, ? extends DatasetAdmin> tableDef = registry.get("table");
 
     // file dataset
-    registry.add(new TimePartitionedFileSetDefinition(PartitionedFileSet.class.getName(), fileSetDef, tableDef));
-    registry.add(new TimePartitionedFileSetDefinition("partitionedFileSet", fileSetDef, tableDef));
+    registry.add(new PartitionedFileSetDefinition(PartitionedFileSet.class.getName(), fileSetDef, tableDef));
+    registry.add(new PartitionedFileSetDefinition("partitionedFileSet", fileSetDef, tableDef));
   }
 }

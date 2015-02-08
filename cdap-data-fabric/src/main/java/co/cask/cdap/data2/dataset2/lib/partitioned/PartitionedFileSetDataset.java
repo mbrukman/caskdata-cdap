@@ -34,9 +34,11 @@ import co.cask.cdap.api.dataset.table.Row;
 import co.cask.cdap.api.dataset.table.Scanner;
 import co.cask.cdap.api.dataset.table.Table;
 import co.cask.cdap.explore.client.ExploreFacade;
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 import com.google.inject.Provider;
 import org.apache.twill.filesystem.Location;
 import org.slf4j.Logger;
@@ -47,6 +49,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Implementation of partitioned datasets using a Table to store the meta data.
@@ -85,7 +88,7 @@ public class PartitionedFileSetDataset extends AbstractDataset implements Partit
 
   @Override
   public void addPartition(PartitionKey key, String path) {
-    final byte[] rowKey = generateRowKey(key);
+    final byte[] rowKey = generateRowKey(key, partitioning);
     Row row = partitions.get(rowKey);
     if (row != null && !row.isEmpty()) {
       throw new DataSetException(String.format("Dataset '%s' already has a partition with the same key: %s",
@@ -114,7 +117,7 @@ public class PartitionedFileSetDataset extends AbstractDataset implements Partit
 
   @Override
   public void dropPartition(PartitionKey key) {
-    final byte[] rowKey = generateRowKey(key);
+    final byte[] rowKey = generateRowKey(key, partitioning);
     partitions.delete(rowKey);
 
     if (FileSetProperties.isExploreEnabled(spec.getProperties())) {
@@ -132,7 +135,7 @@ public class PartitionedFileSetDataset extends AbstractDataset implements Partit
 
   @Override
   public String getPartition(PartitionKey key) {
-    final byte[] rowKey = generateRowKey(key);
+    final byte[] rowKey = generateRowKey(key, partitioning);
     Row row = partitions.get(rowKey);
     if (row == null) {
       return null;
@@ -145,11 +148,11 @@ public class PartitionedFileSetDataset extends AbstractDataset implements Partit
   }
 
   @Override
-  public Collection<String> getPartitionPaths(PartitionFilter filter) {
+  public Set<String> getPartitionPaths(PartitionFilter filter) {
     // this is the same as getPartitions(startTime, endTime).values(), but we want to avoid construction of the map
     final byte[] startKey = generateStartKey(filter);
     final byte[] endKey = generateStopKey(filter);
-    List<String> paths = Lists.newArrayList();
+    Set<String> paths = Sets.newHashSet();
     Scanner scanner = partitions.scan(startKey, endKey);
     try {
       while (true) {
@@ -186,7 +189,7 @@ public class PartitionedFileSetDataset extends AbstractDataset implements Partit
         if (!validateFilter(filter, row)) {
           continue;
         }
-        PartitionKey key = parseRowKey(row.getRow());
+        PartitionKey key = parseRowKey(row.getRow(), partitioning);
         byte[] pathBytes = row.get(RELATIVE_PATH);
         if (pathBytes != null) {
           paths.put(key, Bytes.toString(pathBytes));
@@ -264,7 +267,8 @@ public class PartitionedFileSetDataset extends AbstractDataset implements Partit
 
   //------ private helpers below here --------------------------------------------------------------
 
-  private byte[] generateRowKey(PartitionKey key) {
+  @VisibleForTesting
+  static byte[] generateRowKey(PartitionKey key, Partitioning partitioning) {
     // validate partition key, convert values, and compute size of output
     Map<String, FieldType> partitionFields = partitioning.getFields();
     int totalSize = partitionFields.size() - 1; // one \0 between each of the fields
@@ -308,9 +312,12 @@ public class PartitionedFileSetDataset extends AbstractDataset implements Partit
       String fieldName = entry.getKey();
       FieldType fieldType = entry.getValue();
       PartitionFilter.Condition<? extends Comparable> condition = filter.getCondition(fieldName);
+      if (condition == null) {
+        break; // this field is not present; we can't include any more fields in the start key
+      }
       Comparable lowerValue = condition.getLower();
       if (lowerValue == null) {
-        break; // this field is not present; we can't include any more fields in the start key
+        break; // this field has no lower bound; we can't include any more fields in the start key
       }
       if (!fieldType.validateType(lowerValue)) {
         throw new IllegalArgumentException(
@@ -348,6 +355,9 @@ public class PartitionedFileSetDataset extends AbstractDataset implements Partit
       String fieldName = entry.getKey();
       FieldType fieldType = entry.getValue();
       PartitionFilter.Condition<? extends Comparable> condition = filter.getCondition(fieldName);
+      if (condition == null) {
+        break; // this field is not present; we can't include any more fields in the stop key
+      }
       Comparable upperValue = condition.getUpper();
       if (upperValue == null) {
         break; // this field is not present; we can't include any more fields in the stop key
@@ -370,7 +380,7 @@ public class PartitionedFileSetDataset extends AbstractDataset implements Partit
     }
     totalSize += values.size() - 1; // one \0 between each of the fields
     if (allSingleValue) {
-      totalSize++; // in this case the start and stop key are equal, we append one \0 to ensure the scan is not empty
+      totalSize++; // in this case the start and stop key are equal, we append one \1 to ensure the scan is not empty
     }
     byte[] stopKey = new byte[totalSize];
     int offset = 0;
@@ -378,22 +388,26 @@ public class PartitionedFileSetDataset extends AbstractDataset implements Partit
       System.arraycopy(bytes, 0, stopKey, offset, bytes.length);
       offset += bytes.length;
       if (offset < stopKey.length) {
-        stopKey[offset] = 0;
-        offset++;
+        if (allSingleValue && offset == stopKey.length - 1) {
+          stopKey[offset] = 1; // see above - append \1 to make sure scan is not empty
+        } else {
+          stopKey[offset] = 0;
+          offset++;
+        }
       }
     }
     return stopKey;
   }
 
-  private PartitionKey parseRowKey(byte[] rowKey) {
+  @VisibleForTesting
+  static PartitionKey parseRowKey(byte[] rowKey, Partitioning partitioning) {
     PartitionKey.Builder builder = PartitionKey.builder();
     int offset = 0;
     boolean first = true;
     for (Map.Entry<String, FieldType> entry : partitioning.getFields().entrySet()) {
       String fieldName = entry.getKey();
       FieldType fieldType = entry.getValue();
-      if (first) {
-        first = false;
+      if (!first) {
         if (offset >= rowKey.length) {
           throw new IllegalArgumentException(
             String.format("Invalid row key: Expecting field '%s' at offset %d " +
@@ -406,6 +420,7 @@ public class PartitionedFileSetDataset extends AbstractDataset implements Partit
         }
         offset++;
       }
+      first = false;
       int size = fieldType.determineLengthInBytes(rowKey, offset);
       if (size + offset > rowKey.length) {
         throw new IllegalArgumentException(
@@ -429,7 +444,7 @@ public class PartitionedFileSetDataset extends AbstractDataset implements Partit
   private boolean validateFilter(PartitionFilter filter, Row row) {
     PartitionKey key;
     try {
-      key = parseRowKey(row.getRow());
+      key = parseRowKey(row.getRow(), partitioning);
     } catch (Exception e) {
       LOG.debug(String.format("Failed to parse row key for partitioned file set '%s': %s",
                               getName(), Bytes.toStringBinary(row.getRow())));

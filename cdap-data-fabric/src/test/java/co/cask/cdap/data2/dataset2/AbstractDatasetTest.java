@@ -81,6 +81,7 @@ public class AbstractDatasetTest {
 
   @AfterClass
   public static void destroy() throws Exception {
+    framework.deleteModule("pfs");
     framework.deleteModule("tpfs");
     framework.deleteModule("fileSet");
     framework.deleteModule("core");

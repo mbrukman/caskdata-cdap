@@ -21,8 +21,8 @@ import co.cask.cdap.api.data.batch.InputFormatProvider;
 import co.cask.cdap.api.data.batch.OutputFormatProvider;
 import co.cask.cdap.api.dataset.Dataset;
 
-import java.util.Collection;
 import java.util.Map;
+import java.util.Set;
 import javax.annotation.Nullable;
 
 /**
@@ -62,7 +62,7 @@ public interface PartitionedFileSet extends Dataset, InputFormatProvider, Output
   /**
    * @return the relative paths of all partitions matching a filter.
    */
-  public Collection<String> getPartitionPaths(PartitionFilter filter);
+  public Set<String> getPartitionPaths(PartitionFilter filter);
 
   /**
    * @return a mapping from the partition key to the relative path, of all partitions whose

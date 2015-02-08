@@ -55,18 +55,22 @@ public class PartitionedFileSetArguments {
    */
   @Nullable
   public static PartitionKey getOutputPartitionKey(Map<String, String> arguments, Partitioning partitioning) {
-    int count = 0;
+    // extract the arguments that describe the output partition key
+    Map<String, String> keyArguments = FileSetProperties.propertiesWithPrefix(arguments, OUTPUT_PARTITION_KEY_PREFIX);
+    if (keyArguments.isEmpty()) {
+      return null; // there is no output partition key
+    }
+    // there is a partition key; now it is required to match the partitioning
     PartitionKey.Builder builder = PartitionKey.builder();
     for (Map.Entry<String, FieldType> entry : partitioning.getFields().entrySet()) {
       String fieldName = entry.getKey();
       FieldType fieldType = entry.getValue();
-      String stringValue = arguments.get(OUTPUT_PARTITION_KEY_PREFIX + fieldName);
+      String stringValue = arguments.get(fieldName);
       Comparable fieldValue = convertFieldValue("key", "value", fieldName, fieldType, stringValue, false);
       @SuppressWarnings({ "unchecked", "unused" }) // we know it's type safe, but Java does not
       PartitionKey.Builder unused = builder.addField(fieldName, fieldValue);
-      count++;
     }
-    return count == 0 ? null : builder.build();
+    return builder.build();
   }
 
   /**
