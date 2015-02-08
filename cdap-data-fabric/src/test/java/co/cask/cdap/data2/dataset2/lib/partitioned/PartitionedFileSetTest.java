@@ -35,6 +35,7 @@ import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
 import org.junit.experimental.categories.Category;
+import org.slf4j.Logger;
 
 import java.util.List;
 import java.util.Map;
@@ -44,6 +45,8 @@ import java.util.Set;
  * Test partitioned file sets without map/reduce and without explore.
  */
 public class PartitionedFileSetTest extends AbstractDatasetTest {
+
+  static final Logger LOG = org.slf4j.LoggerFactory.getLogger(PartitionedFileSetTest.class);
 
   static final Partitioning PARTITIONING_1 = Partitioning.builder()
     .addStringField("s")
@@ -68,7 +71,7 @@ public class PartitionedFileSetTest extends AbstractDatasetTest {
     addTwoConditionFilters(FILTERS, "s", S_CONDITIONS, "l", L_CONDITIONS);
     addTwoConditionFilters(FILTERS, "i", I_CONDITIONS, "l", L_CONDITIONS);
     addThreeConditionFilters(FILTERS, "s", S_CONDITIONS, "i", I_CONDITIONS, "l", L_CONDITIONS);
-    System.err.println("Generated " + FILTERS.size() + " filters.");
+    LOG.info("Generated " + FILTERS.size() + " filters.");
   }
 
   @Before

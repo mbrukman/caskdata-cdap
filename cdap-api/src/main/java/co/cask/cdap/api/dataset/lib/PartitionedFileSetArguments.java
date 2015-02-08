@@ -65,7 +65,7 @@ public class PartitionedFileSetArguments {
     for (Map.Entry<String, FieldType> entry : partitioning.getFields().entrySet()) {
       String fieldName = entry.getKey();
       FieldType fieldType = entry.getValue();
-      String stringValue = arguments.get(fieldName);
+      String stringValue = keyArguments.get(fieldName);
       Comparable fieldValue = convertFieldValue("key", "value", fieldName, fieldType, stringValue, false);
       @SuppressWarnings({ "unchecked", "unused" }) // we know it's type safe, but Java does not
       PartitionKey.Builder unused = builder.addField(fieldName, fieldValue);
@@ -86,8 +86,12 @@ public class PartitionedFileSetArguments {
       if (condition.getLower() == condition.getUpper()) {
         arguments.put(INPUT_PARTITION_VALUE_PREFIX + fieldName, condition.getLower().toString());
       } else {
-        arguments.put(INPUT_PARTITION_LOWER_PREFIX + fieldName, condition.getLower().toString());
-        arguments.put(INPUT_PARTITION_UPPER_PREFIX + fieldName, condition.getUpper().toString());
+        if (condition.getLower() != null) {
+          arguments.put(INPUT_PARTITION_LOWER_PREFIX + fieldName, condition.getLower().toString());
+        }
+        if (condition.getUpper() != null) {
+          arguments.put(INPUT_PARTITION_UPPER_PREFIX + fieldName, condition.getUpper().toString());
+        }
       }
     }
   }
