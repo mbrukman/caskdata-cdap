@@ -18,10 +18,10 @@ package co.cask.cdap.api.dataset.lib;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Maps;
-import com.sun.istack.internal.NotNull;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
+import javax.annotation.Nonnull;
 
 /**
  * Types and methods to specify partitioning keys for datasets.
@@ -33,7 +33,7 @@ public class PartitionKey {
   /**
    * Private constructor to force use of the builder.
    */
-  private PartitionKey(@NotNull Map<String, Comparable> fields) {
+  private PartitionKey(@Nonnull Map<String, Comparable> fields) {
     this.fields = fields;
   }
 
