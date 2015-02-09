@@ -70,13 +70,19 @@ public class ProgramGenerationStage extends AbstractStage<ApplicationDeployable>
 
     final ArchiveBundler bundler = new ArchiveBundler(input.getLocation());
 
+    // Make sure the namespace directory exists
+    String namespace = input.getId().getNamespaceId();
+    Location namespaceDir = locationFactory.create(namespace);
+    if (!namespaceDir.exists()) {
+      throw new IOException(String.format("Namespace home directory %s not found", namespaceDir.toURI().getPath()));
+    }
     // Make sure we have a directory to store the original artifact.
-    Location outputDir = locationFactory.create(configuration.get(Constants.AppFabric.OUTPUT_DIR));
-    final Location newOutputDir = outputDir.append(input.getId().getNamespaceId());
+    Location appFabricDir = namespaceDir.append(configuration.get(Constants.AppFabric.OUTPUT_DIR));
+    final Location newOutputDir = appFabricDir;
 
     // Check exists, create, check exists again to avoid failure due to race condition.
     if (!newOutputDir.exists() && !newOutputDir.mkdirs() && !newOutputDir.exists()) {
-      throw new IOException("Failed to create directory");
+      throw new IOException(String.format("Failed to create directory %s", newOutputDir.toURI().getPath()));
     }
 
     // Now, we iterate through all ProgramSpecification and generate programs
@@ -109,7 +115,7 @@ public class ProgramGenerationStage extends AbstractStage<ApplicationDeployable>
           @Override
           public Location call() throws Exception {
             ProgramType type = ProgramTypes.fromSpecification(spec);
-            String name = String.format(Locale.ENGLISH, "%s/%s", type, applicationName);
+            String name = String.format(Locale.ENGLISH, "%s/%s", applicationName, type);
             Location programDir = newOutputDir.append(name);
             if (!programDir.exists()) {
               programDir.mkdirs();
@@ -128,6 +134,17 @@ public class ProgramGenerationStage extends AbstractStage<ApplicationDeployable>
     } finally {
       executorService.shutdown();
     }
+
+    // Move archive directory under namespace directory and remove the old archive directory.
+    // Cannot do this before starting the deploy pipeline because appId could be null at that time.
+    // However, it is guaranteed to be non-null from VerificationsStage onwards
+    Location oldArchiveLocation = appFabricDir.append(Constants.AppFabric.ARCHIVE_DIR);
+    Location newArchiveLocation = appFabricDir.append(applicationName).append(Constants.AppFabric.ARCHIVE_DIR);
+    if (oldArchiveLocation.renameTo(newArchiveLocation) == null) {
+      throw new IOException(String.format("Could not move archive from location: %s, to location: %s",
+                                          oldArchiveLocation.toURI(), newArchiveLocation.toURI()));
+    }
+
 
     // Emits the received specification with programs.
     emit(new ApplicationWithPrograms(input, programs.build()));

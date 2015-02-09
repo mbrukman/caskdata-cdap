@@ -95,8 +95,6 @@ public class AdapterService extends AbstractIdleService {
   private final Store store;
   private final PreferencesStore preferencesStore;
   private Map<String, AdapterTypeInfo> adapterTypeInfos;
-  private final String archiveDir;
-
 
   @Inject
   public AdapterService(CConfiguration configuration, DatasetFramework datasetFramework, Scheduler scheduler,
@@ -111,7 +109,6 @@ public class AdapterService extends AbstractIdleService {
     this.store = storeFactory.create();
     this.locationFactory = locationFactory;
     this.managerFactory = managerFactory;
-    archiveDir = configuration.get(Constants.AppFabric.OUTPUT_DIR) + "/archive";
     this.adapterTypeInfos = Maps.newHashMap();
     this.preferencesStore = preferencesStore;
   }
@@ -328,7 +325,9 @@ public class AdapterService extends AbstractIdleService {
         }
       });
 
-      Location destination = locationFactory.create(archiveDir).append(namespaceId).append(adapterTypeInfo.getType());
+      String appFabricDir = configuration.get(Constants.AppFabric.OUTPUT_DIR);
+      Location destination = locationFactory.create(namespaceId).append(appFabricDir)
+        .append(adapterTypeInfo.getType()).append(Constants.AppFabric.ARCHIVE_DIR);
       DeploymentInfo deploymentInfo = new DeploymentInfo(adapterTypeInfo.getFile(), destination,
                                                          ApplicationDeployScope.SYSTEM);
       ApplicationWithPrograms applicationWithPrograms =
