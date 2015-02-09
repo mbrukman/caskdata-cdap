@@ -81,7 +81,7 @@ public class CLIMain {
 
     Map<String, Completer> completers = injector.getInstance(DefaultCompleters.class).get();
     cli = new CLI<Command>(commands, completers);
-    cli.getReader().setPrompt("cdap (" + cliConfig.getURI() + ")> ");
+    cli.getReader().setPrompt(cliConfig.getPrompt());
     cli.setExceptionHandler(new CLIExceptionHandler<Exception>() {
       @Override
       public boolean handleException(PrintStream output, Exception e, int timesRetried) {
@@ -103,7 +103,7 @@ public class CLIMain {
     cliConfig.addHostnameChangeListener(new CLIConfig.ConnectionChangeListener() {
       @Override
       public void onConnectionChanged(String newNamespace, URI newURI) {
-        cli.getReader().setPrompt("cdap (" + newURI + "//" + newNamespace + ")> ");
+        cli.getReader().setPrompt(cliConfig.getPrompt());
       }
     });
   }

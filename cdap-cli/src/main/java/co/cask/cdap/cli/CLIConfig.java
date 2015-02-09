@@ -59,6 +59,7 @@ public class CLIConfig {
   private ConnectionInfo connectionInfo;
 
   private String currentNamespace;
+  private String currentUser = null;
 
   /**
    * @param hostname Hostname of the CDAP server to interact with (e.g. "example.com")
@@ -102,11 +103,11 @@ public class CLIConfig {
     return hostnameProvided;
   }
 
-  public void tryConnect(ConnectionInfo connectionInfo, PrintStream output, boolean verbose) throws Exception {
-
+  public void tryConnect(ConnectionInfo connectionInfo, PrintStream output,
+                         boolean useSavedToken, boolean verbose) throws Exception {
     this.connectionInfo = connectionInfo;
     try {
-      AccessToken accessToken = acquireAccessToken(clientConfig, connectionInfo, output, verbose);
+      AccessToken accessToken = acquireAccessToken(clientConfig, connectionInfo, output, useSavedToken, verbose);
       checkConnection(clientConfig, connectionInfo, accessToken);
       setHostname(connectionInfo.getHostname());
       setPort(connectionInfo.getPort());
@@ -149,18 +150,20 @@ public class CLIConfig {
   }
 
   private AccessToken acquireAccessToken(ClientConfig clientConfig, ConnectionInfo connectionInfo, PrintStream output,
-                                         boolean verbose) throws IOException {
+                                         boolean useSavedToken, boolean verbose) throws IOException {
 
     if (!isAuthenticationEnabled(connectionInfo)) {
       return null;
     }
 
-    try {
-      AccessToken savedAccessToken = getSavedAccessToken(connectionInfo.getHostname());
-      checkConnection(clientConfig, connectionInfo, savedAccessToken);
-      return savedAccessToken;
-    } catch (UnAuthorizedAccessTokenException ignored) {
-      // access token invalid - fall through to try acquiring token manually
+    if (useSavedToken) {
+      try {
+        AccessToken savedAccessToken = getSavedAccessToken(connectionInfo.getHostname());
+        checkConnection(clientConfig, connectionInfo, savedAccessToken);
+        return savedAccessToken;
+      } catch (UnAuthorizedAccessTokenException ignored) {
+        // access token invalid - fall through to try acquiring token manually
+      }
     }
 
     return getNewAccessToken(connectionInfo, output, verbose);
@@ -298,12 +301,23 @@ public class CLIConfig {
     }
   }
 
+  public void setCurrentUser(String user) {
+    currentUser = user;
+    for (ConnectionChangeListener listener : connectionChangeListeners) {
+      listener.onConnectionChanged(currentNamespace, clientConfig.getBaseURI());
+    }
+  }
+
   public void setAccessToken(AccessToken accessToken) {
     clientConfig.setAccessToken(accessToken);
   }
 
   public void addHostnameChangeListener(ConnectionChangeListener listener) {
     this.connectionChangeListeners.add(listener);
+  }
+
+  public String getPrompt() {
+    return "cdap (" + (currentUser != null ? currentUser + "@" : "") + getURI() + "/" + getCurrentNamespace() + ")> ";
   }
 
   /**
