@@ -73,8 +73,12 @@ public class AsciiTable<T> {
     // If any record has multiple lines output, a row divider is printed between each row.
     boolean useRowDivider = false;
     List<Row> rows = Lists.newArrayList();
-    for (T row : records) {
-      useRowDivider = generateRow(rowMaker.makeRow(row), rows) || useRowDivider;
+    if (records != null) {
+      for (T row : records) {
+        if (row != null) {
+          useRowDivider = generateRow(rowMaker.makeRow(row), rows) || useRowDivider;
+        }
+      }
     }
 
     int[] columnWidths = calculateColumnWidths(header, rows);

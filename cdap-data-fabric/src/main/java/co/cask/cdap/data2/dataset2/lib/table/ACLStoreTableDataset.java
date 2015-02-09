@@ -22,7 +22,6 @@ import co.cask.cdap.api.dataset.lib.AbstractDataset;
 import co.cask.cdap.api.dataset.lib.IndexedObjectStore;
 import co.cask.cdap.api.dataset.module.EmbeddedDataset;
 import co.cask.common.authorization.ACLEntry;
-import co.cask.common.authorization.ObjectId;
 import co.cask.common.authorization.Permission;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
@@ -42,8 +41,7 @@ public class ACLStoreTableDataset extends AbstractDataset implements ACLStoreTab
 
   private final IndexedObjectStore<ACLEntry> store;
 
-  public ACLStoreTableDataset(DatasetSpecification spec,
-                              @EmbeddedDataset("acls") IndexedObjectStore<ACLEntry> store) {
+  public ACLStoreTableDataset(DatasetSpecification spec, @EmbeddedDataset("acls") IndexedObjectStore<ACLEntry> store) {
     super(spec.getName(), store);
     this.store = store;
   }
@@ -57,8 +55,7 @@ public class ACLStoreTableDataset extends AbstractDataset implements ACLStoreTab
   @Override
   public boolean exists(ACLEntry entry) throws Exception {
     if (entry.getPermission() == Permission.ANY) {
-      List<ACLEntry> any = store.readAllByIndex(
-        getSecondaryKey(new ACLEntry(entry.getObject(), entry.getSubject(), null)));
+      List<ACLEntry> any = store.readAllByIndex(getKey(new ACLEntry(entry.getObject(), entry.getSubject(), null)));
       return !any.isEmpty();
     } else if (entry.getPermission() != Permission.ADMIN) {
       if (store.read(getKey(new ACLEntry(entry.getObject(), entry.getSubject(), Permission.ADMIN))) != null) {
@@ -82,15 +79,11 @@ public class ACLStoreTableDataset extends AbstractDataset implements ACLStoreTab
       if (query.getPermission() != null && query.getPermission() == Permission.ANY) {
         // return all ACL entries with permission that isn't ANY
         List<ACLEntry> entriesForAny = Lists.newArrayList();
-        for (Permission permission : Permission.ALL) {
-          if (!Permission.ANY.equals(permission)) {
-            Query partialAnyQuery = new Query(query.getObjectId(), query.getSubjectId(), permission);
-            byte[] secondaryKeyForPartialAny = getSecondaryKey(partialAnyQuery);
-            List<ACLEntry> entriesForPartialAny = store.readAllByIndex(secondaryKeyForPartialAny);
-            for (ACLEntry entry : entriesForPartialAny) {
-              entriesForAny.add(new ACLEntry(entry.getObject(), entry.getSubject(), Permission.ANY));
-            }
-          }
+        Query partialAnyQuery = new Query(query.getObjectId(), query.getSubjectId(), null);
+        byte[] secondaryKeyForPartialAny = getKey(partialAnyQuery);
+        List<ACLEntry> entriesForPartialAny = store.readAllByIndex(secondaryKeyForPartialAny);
+        for (ACLEntry entry : entriesForPartialAny) {
+          entriesForAny.add(new ACLEntry(entry.getObject(), entry.getSubject(), Permission.ANY));
         }
         result.addAll(entriesForAny);
       } else {
@@ -98,14 +91,14 @@ public class ACLStoreTableDataset extends AbstractDataset implements ACLStoreTab
           // non-ADMIN permission - ADMIN permission implies all other permissions,
           // so also add ACL entries if ADMIN permission exists
           Query queryForAdmin = new Query(query.getObjectId(), query.getSubjectId(), Permission.ADMIN);
-          byte[] secondaryKeyForAdmin = getSecondaryKey(queryForAdmin);
+          byte[] secondaryKeyForAdmin = getKey(queryForAdmin);
           List<ACLEntry> entriesForAdmin = store.readAllByIndex(secondaryKeyForAdmin);
           for (ACLEntry entry : entriesForAdmin) {
             result.add(new ACLEntry(entry.getObject(), entry.getSubject(), query.getPermission()));
           }
         }
 
-        byte[] secondaryKey = getSecondaryKey(query);
+        byte[] secondaryKey = getKey(query);
         List<ACLEntry> entries = store.readAllByIndex(secondaryKey);
         result.addAll(entries);
       }
@@ -116,12 +109,16 @@ public class ACLStoreTableDataset extends AbstractDataset implements ACLStoreTab
   @Override
   public void delete(Iterable<Query> queries) throws Exception {
     for (Query query : queries) {
-      store.deleteAllByIndex(getSecondaryKey(query));
+      store.deleteAllByIndex(getKey(query));
     }
   }
 
   private byte[] getKey(ACLEntry entry) {
     return Bytes.toBytes(GSON.toJson(entry));
+  }
+
+  private byte[] getKey(Query query) {
+    return getKey(new ACLEntry(query.getObjectId(), query.getSubjectId(), query.getPermission()));
   }
 
   private byte[][] getSecondaryKeysForWrite(ACLEntry entry) {
@@ -136,20 +133,12 @@ public class ACLStoreTableDataset extends AbstractDataset implements ACLStoreTab
     keys.add(getKey(new ACLEntry(null, null, entry.getPermission())));
     keys.add(getKey(new ACLEntry(null, null, null)));
     // also index by parents
-    for (ObjectId parent : entry.getObject().getParents()) {
-      keys.add(getKey(new ACLEntry(parent, null, null)));
-      keys.add(getKey(new ACLEntry(parent, entry.getSubject(), null)));
-      keys.add(getKey(new ACLEntry(parent, entry.getSubject(), entry.getPermission())));
-      keys.add(getKey(new ACLEntry(parent, null, entry.getPermission())));
-    }
+//    for (ObjectId parent : entry.getObject().getParents()) {
+//      keys.add(getKey(new ACLEntry(parent, null, null)));
+//      keys.add(getKey(new ACLEntry(parent, entry.getSubject(), null)));
+//      keys.add(getKey(new ACLEntry(parent, entry.getSubject(), entry.getPermission())));
+//      keys.add(getKey(new ACLEntry(parent, null, entry.getPermission())));
+//    }
     return keys.toArray(new byte[keys.size()][]);
-  }
-
-  private byte[] getSecondaryKey(ACLEntry entry) {
-    return getKey(entry);
-  }
-
-  private byte[] getSecondaryKey(Query query) {
-    return getSecondaryKey(new ACLEntry(query.getObjectId(), query.getSubjectId(), query.getPermission()));
   }
 }

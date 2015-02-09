@@ -40,13 +40,28 @@ import java.util.List;
  */
 public class AuthorizationClientTest {
 
+  private static final ACLEntry UNRELATED_ACL = new ACLEntry(
+    ObjectIds.application("unrelatedNamespace", "unrelatedApp"),
+    SubjectIds.user("unrelatedUser"),
+    Permission.READ
+  );
+
+
+  private static final ACLEntry UNRELATED_ACL2 = new ACLEntry(
+    ObjectIds.application("unrelatedNamespace", "unrelatedApp2"),
+    SubjectIds.user("unrelatedUser"),
+    Permission.READ
+  );
+
   private AuthorizationClient authorizationClient;
   private ACLStore aclStore;
 
   @Before
-  public void setUp() {
+  public void setUp() throws Exception {
     this.aclStore = new InMemoryACLStore();
     this.authorizationClient = new DefaultAuthorizationClient(aclStore);
+    aclStore.write(UNRELATED_ACL);
+    aclStore.write(UNRELATED_ACL2);
   }
 
   @Test
@@ -191,6 +206,11 @@ public class AuthorizationClientTest {
     // deleting mainNamespace ACL should deny access to objects under mainNamespace without other ACLs
     aclStore.delete(new ACLEntry(mainNamespace, user, permission));
     Assert.assertFalse(authorizationClient.isAuthorized(app, ImmutableList.of(user), ImmutableList.of(permission)));
+  }
+
+  @Test
+  public void testAny() {
+    // TODO: isAuthorized for ANY permission should be true if WRITE permission exists
   }
 
   /**

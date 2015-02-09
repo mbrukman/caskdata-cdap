@@ -27,8 +27,11 @@ import co.cask.cdap.security.authentication.client.Credential;
 import co.cask.cdap.security.authentication.client.basic.BasicAuthenticationClient;
 import com.google.common.base.Charsets;
 import com.google.common.base.Joiner;
+import com.google.common.base.Supplier;
 import com.google.common.base.Throwables;
+import com.google.common.collect.HashMultimap;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Multimap;
 import com.google.common.io.CharStreams;
 import com.google.common.io.Files;
 import com.google.common.io.InputSupplier;
@@ -39,8 +42,10 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.PrintStream;
 import java.net.URI;
+import java.net.URISyntaxException;
 import java.util.List;
 import java.util.Properties;
+import javax.ws.rs.core.HttpHeaders;
 
 /**
  * Configuration for the CDAP CLI.
@@ -188,11 +193,16 @@ public class CLIConfig {
       } else {
         credentialValue = reader.readLine(prompt);
       }
+
+      if (credential.getName().endsWith(".username")) {
+        setCurrentUser(credentialValue);
+      }
       properties.put(credential.getName(), credentialValue);
     }
 
     authenticationClient.configure(properties);
     AccessToken accessToken = authenticationClient.getAccessToken();
+    clientConfig.setAccessToken(accessToken);
 
     if (accessToken != null) {
       if (saveAccessToken(accessToken, connectionInfo.getHostname()) && verbose) {
@@ -317,7 +327,34 @@ public class CLIConfig {
   }
 
   public String getPrompt() {
-    return "cdap (" + (currentUser != null ? currentUser + "@" : "") + getURI() + "/" + getCurrentNamespace() + ")> ";
+    return "cdap (" + (currentUser != null ? currentUser + " @ " : "") + getURI() + "/" + getCurrentNamespace() + ")> ";
+  }
+
+  public Supplier<URI> getURISupplier() {
+    return new Supplier<URI>() {
+      @Override
+      public URI get() {
+        return getURI();
+      }
+    };
+  }
+
+  public Supplier<Multimap<String, String>> getHeadersSupplier() {
+    return new Supplier<Multimap<String, String>>() {
+      @Override
+      public Multimap<String, String> get() {
+        return getHeaders();
+      }
+    };
+  }
+
+  private Multimap<String, String> getHeaders() {
+    HashMultimap<String, String> headers = HashMultimap.create();
+    AccessToken accessToken = clientConfig.getAccessToken();
+    if (accessToken != null) {
+      headers.put(HttpHeaders.AUTHORIZATION, accessToken.getTokenType() + " " + accessToken.getValue());
+    }
+    return headers;
   }
 
   /**

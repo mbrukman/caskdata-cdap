@@ -92,6 +92,7 @@ public class CLIMain {
           InvalidCommandException ex = (InvalidCommandException) e;
           output.printf("Invalid command '%s'. Enter 'help' for a list of commands\n", ex.getInput());
         } else {
+          e.printStackTrace();
           output.println("Error: " + e.getMessage());
         }
 

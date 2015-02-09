@@ -118,7 +118,9 @@ public class SecureHandler {
     if (Iterables.isEmpty(result) && !isAuthorized(parent, requiredPermissions)) {
       responder.sendStatus(HttpResponseStatus.UNAUTHORIZED);
     } else {
-      responder.sendJson(responseStatus, result);
+      // TODO: figure out why Iterable doesn't work in sendJson
+      ImmutableList<T> body = ImmutableList.copyOf(result);
+      responder.sendJson(responseStatus, body);
     }
   }
 

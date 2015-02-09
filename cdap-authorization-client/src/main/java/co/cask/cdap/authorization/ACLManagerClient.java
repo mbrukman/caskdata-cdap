@@ -23,7 +23,9 @@ import co.cask.common.http.HttpResponse;
 import co.cask.common.http.ObjectResponse;
 import com.google.common.base.Joiner;
 import com.google.common.base.Supplier;
+import com.google.common.collect.HashMultimap;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Multimap;
 import com.google.common.reflect.TypeToken;
 import com.google.gson.Gson;
 
@@ -42,9 +44,15 @@ public class ACLManagerClient {
 
   private static final Gson GSON = new Gson();
   private final Supplier<URI> baseURISupplier;
+  private final Supplier<Multimap<String, String>> headersSupplier;
+
+  public ACLManagerClient(Supplier<URI> baseURISupplier, Supplier<Multimap<String, String>> headersSupplier) {
+    this.baseURISupplier = baseURISupplier;
+    this.headersSupplier = headersSupplier;
+  }
 
   public ACLManagerClient(Supplier<URI> baseURISupplier) {
-    this.baseURISupplier = baseURISupplier;
+    this(baseURISupplier, null);
   }
 
   public String appendQuery(String path, Iterable<ACLStore.Query> queries) {
@@ -73,7 +81,7 @@ public class ACLManagerClient {
 
   public Set<ACLEntry> getGlobalACLs(Iterable<ACLStore.Query> queries) throws IOException {
     String path = appendQuery("/v1/acls/global", queries);
-    HttpRequest request = HttpRequest.get(resolveURL(path)).build();
+    HttpRequest request = HttpRequest.get(resolveURL(path)).addHeaders(getHeaders()).build();
     HttpResponse response = HttpRequests.execute(request);
 
     if (response.getResponseCode() != HttpURLConnection.HTTP_OK) {
@@ -86,7 +94,7 @@ public class ACLManagerClient {
 
   public Set<ACLEntry> getACLs(String namespaceId, Iterable<ACLStore.Query> queries) throws IOException {
     String path = appendQuery("/v1/acls/namespace/" + namespaceId, queries);
-    HttpRequest request = HttpRequest.get(resolveURL(path)).build();
+    HttpRequest request = HttpRequest.get(resolveURL(path)).addHeaders(getHeaders()).build();
     HttpResponse response = HttpRequests.execute(request);
 
     if (response.getResponseCode() != HttpURLConnection.HTTP_OK) {
@@ -99,7 +107,7 @@ public class ACLManagerClient {
 
   public void deleteGlobalACLs(Iterable<ACLStore.Query> queries) throws IOException {
     String path = appendQuery("/v1/acls/global", queries);
-    HttpRequest request = HttpRequest.delete(resolveURL(path)).build();
+    HttpRequest request = HttpRequest.delete(resolveURL(path)).addHeaders(getHeaders()).build();
     HttpResponse response = HttpRequests.execute(request);
 
     if (response.getResponseCode() != HttpURLConnection.HTTP_OK) {
@@ -110,7 +118,7 @@ public class ACLManagerClient {
 
   public void deleteACLs(String namespaceId, Iterable<ACLStore.Query> queries) throws IOException {
     String path = appendQuery("/v1/acls/namespace/" + namespaceId, queries);
-    HttpRequest request = HttpRequest.delete(resolveURL(path)).build();
+    HttpRequest request = HttpRequest.delete(resolveURL(path)).addHeaders(getHeaders()).build();
     HttpResponse response = HttpRequests.execute(request);
 
     if (response.getResponseCode() != HttpURLConnection.HTTP_OK) {
@@ -134,7 +142,7 @@ public class ACLManagerClient {
    */
   public void createACL(String namespaceId, ACLEntry entry) throws IOException {
     HttpRequest request = HttpRequest.post(resolveURL("/v1/acls/namespace/" + namespaceId))
-      .withBody(GSON.toJson(entry)).build();
+      .withBody(GSON.toJson(entry)).addHeaders(getHeaders()).build();
     HttpResponse response = HttpRequests.execute(request);
 
     if (response.getResponseCode() != HttpURLConnection.HTTP_OK &&
@@ -159,7 +167,7 @@ public class ACLManagerClient {
    */
   public void createGlobalACL(ACLEntry entry) throws IOException {
     HttpRequest request = HttpRequest.post(resolveURL("/v1/acls/global"))
-      .withBody(GSON.toJson(entry)).build();
+      .withBody(GSON.toJson(entry)).addHeaders(getHeaders()).build();
     HttpResponse response = HttpRequests.execute(request);
 
     if (response.getResponseCode() != HttpURLConnection.HTTP_OK &&
@@ -171,5 +179,9 @@ public class ACLManagerClient {
 
   protected URL resolveURL(String path) throws MalformedURLException {
     return baseURISupplier.get().resolve(path).toURL();
+  }
+
+  private Multimap<String, String> getHeaders() {
+    return headersSupplier == null ? HashMultimap.<String, String>create() : headersSupplier.get();
   }
 }

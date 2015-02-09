@@ -455,7 +455,8 @@ public class ProgramLifecycleHttpHandler extends AbstractAppFabricHttpHandler {
         return;
       }
 
-      Map<String, String> runtimeArgs = preferencesStore.getProperties(id.getNamespaceId(), appId, runnableType, runnableId);
+      Map<String, String> runtimeArgs = preferencesStore.getProperties(id.getNamespaceId(), appId,
+                                                                       runnableType, runnableId);
       responder.sendJson(HttpResponseStatus.OK, runtimeArgs);
     } catch (Throwable e) {
       LOG.error("Error getting runtime args {}", e.getMessage(), e);

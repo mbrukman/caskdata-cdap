@@ -45,6 +45,25 @@ public class ACLStoreTableDatasetTest extends AbstractDatasetTest {
     Permission.WRITE
   );
 
+  private static final ACLEntry SIMPLE_ACL_PARENT = new ACLEntry(
+    ObjectIds.namespace("someNamespace"),
+    SubjectIds.user("bob"),
+    Permission.WRITE
+  );
+
+  private static final ACLEntry UNRELATED_ACL = new ACLEntry(
+    ObjectIds.application("unrelatedNamespace", "unrelatedApp"),
+    SubjectIds.user("unrelatedUser"),
+    Permission.READ
+  );
+
+
+  private static final ACLEntry UNRELATED_ACL2 = new ACLEntry(
+    ObjectIds.application("unrelatedNamespace", "unrelatedApp2"),
+    SubjectIds.user("unrelatedUser"),
+    Permission.READ
+  );
+
   private ACLStoreTable aclStore;
 
   @Before
@@ -52,6 +71,8 @@ public class ACLStoreTableDatasetTest extends AbstractDatasetTest {
     addModule(ACLStoreTableModule.class.getName(), new ACLStoreTableModule());
     createInstance(ACLStoreTable.class.getName(), "testACLStoreTable", DatasetProperties.EMPTY);
     this.aclStore = getInstance("testACLStoreTable");
+    aclStore.write(UNRELATED_ACL);
+    aclStore.write(UNRELATED_ACL2);
   }
 
   @After
@@ -71,30 +92,35 @@ public class ACLStoreTableDatasetTest extends AbstractDatasetTest {
 
   @Test
   public void testSearchAndDeleteBySimpleQuery() throws Exception {
-    testSearchAndDelete(ImmutableList.of(SIMPLE_ACL),
-                        ImmutableList.of(new ACLStore.Query(SIMPLE_ACL)));
+    aclStore.write(SIMPLE_ACL_PARENT);
+    testSearchAndDelete(ImmutableList.of(SIMPLE_ACL), ImmutableList.of(new ACLStore.Query(SIMPLE_ACL)));
   }
 
   @Test
   public void testSearchAndDeleteByObject() throws Exception {
+    aclStore.write(SIMPLE_ACL_PARENT);
     testSearchAndDelete(ImmutableList.of(SIMPLE_ACL),
                         ImmutableList.of(new ACLStore.Query(SIMPLE_ACL.getObject(), null, null)));
   }
 
   @Test
   public void testSearchAndDeleteBySubject() throws Exception {
+    aclStore.write(SIMPLE_ACL_PARENT);
     testSearchAndDelete(ImmutableList.of(SIMPLE_ACL),
                         ImmutableList.of(new ACLStore.Query(null, SIMPLE_ACL.getSubject(), null)));
   }
 
   @Test
   public void testSearchAndDeleteByPermission() throws Exception {
+    aclStore.write(SIMPLE_ACL_PARENT);
     testSearchAndDelete(ImmutableList.of(SIMPLE_ACL),
                         ImmutableList.of(new ACLStore.Query(null, null, SIMPLE_ACL.getPermission())));
   }
 
   @Test
   public void testMultiSearchAndDelete() throws Exception {
+    aclStore.write(SIMPLE_ACL_PARENT);
+
     ACLEntry sameObjectAndSubject = new ACLEntry(SIMPLE_ACL);
     sameObjectAndSubject.setPermission(Permission.LIFECYCLE);
     Assert.assertNotEquals(sameObjectAndSubject.getPermission(), SIMPLE_ACL.getPermission());
@@ -153,23 +179,5 @@ public class ACLStoreTableDatasetTest extends AbstractDatasetTest {
     Set<ACLEntry> searchResults = aclStore.search(new ACLStore.Query(objectId, currentUser, Permission.READ));
     Assert.assertEquals(1, searchResults.size());
     Assert.assertEquals(new ACLEntry(objectId, currentUser, Permission.READ), searchResults.iterator().next());
-  }
-
-  @Test
-  public void testSearchHierarchy() throws Exception {
-    SubjectId currentUser = SubjectIds.user("bob");
-    String namespaceId = "someNamespace";
-    ObjectId objectId = ObjectIds.application(namespaceId, "someApp");
-
-    aclStore.write(new ACLEntry(objectId, currentUser, Permission.WRITE));
-
-    Set<ACLEntry> searchResults = aclStore.search(new ACLStore.Query(ObjectIds.namespace(namespaceId),
-                                                                     currentUser, Permission.WRITE));
-    Assert.assertEquals(1, searchResults.size());
-    Assert.assertEquals(new ACLEntry(objectId, currentUser, Permission.WRITE), searchResults.iterator().next());
-
-    searchResults = aclStore.search(new ACLStore.Query(ObjectId.GLOBAL, currentUser, Permission.WRITE));
-    Assert.assertEquals(1, searchResults.size());
-    Assert.assertEquals(new ACLEntry(objectId, currentUser, Permission.WRITE), searchResults.iterator().next());
   }
 }

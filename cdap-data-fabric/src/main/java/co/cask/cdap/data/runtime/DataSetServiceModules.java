@@ -129,7 +129,7 @@ public class DataSetServiceModules {
         defaultModules.put("core", new CoreDatasetsModule());
         defaultModules.put("fileSet", new FileSetModule());
         defaultModules.put("timePartitionedFileSet", new TimePartitionedFileSetModule());
-        defaultModules.put("aclTable", new ACLStoreTableModule());
+        defaultModules.put("aclStoreTable", new ACLStoreTableModule());
 
         bind(new TypeLiteral<Map<String, ? extends DatasetModule>>() { })
           .annotatedWith(Names.named("defaultDatasetModules")).toInstance(defaultModules);
