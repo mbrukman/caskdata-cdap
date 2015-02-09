@@ -281,12 +281,12 @@ public class PartitionedFileSetDataset extends AbstractDataset implements Partit
         throw new IllegalArgumentException(
           String.format("Incomplete partition key: value for field '%s' is missing", fieldName));
       }
-      if (!fieldType.validateType(fieldValue)) {
+      if (!FieldTypes.validateType(fieldValue, fieldType)) {
         throw new IllegalArgumentException(
           String.format("Invalid partition key: value for %s field '%s' has incompatible type %s",
                         fieldType.name(), fieldName, fieldValue.getClass().getName()));
       }
-      byte[] bytes = fieldType.toBytes(fieldValue);
+      byte[] bytes = FieldTypes.toBytes(fieldValue, fieldType);
       totalSize += bytes.length;
       values.add(bytes);
     }
@@ -319,12 +319,12 @@ public class PartitionedFileSetDataset extends AbstractDataset implements Partit
       if (lowerValue == null) {
         break; // this field has no lower bound; we can't include any more fields in the start key
       }
-      if (!fieldType.validateType(lowerValue)) {
+      if (!FieldTypes.validateType(lowerValue, fieldType)) {
         throw new IllegalArgumentException(
           String.format("Invalid partition filter: lower bound for %s field '%s' has incompatible type %s",
                         fieldType.name(), fieldName, lowerValue.getClass().getName()));
       }
-      byte[] bytes = fieldType.toBytes(lowerValue);
+      byte[] bytes = FieldTypes.toBytes(lowerValue, fieldType);
       totalSize += bytes.length;
       values.add(bytes);
     }
@@ -362,12 +362,12 @@ public class PartitionedFileSetDataset extends AbstractDataset implements Partit
       if (upperValue == null) {
         break; // this field is not present; we can't include any more fields in the stop key
       }
-      if (!fieldType.validateType(upperValue)) {
+      if (!FieldTypes.validateType(upperValue, fieldType)) {
         throw new IllegalArgumentException(
           String.format("Invalid partition filter: upper bound for %s field '%s' has incompatible type %s",
                         fieldType.name(), fieldName, upperValue.getClass().getName()));
       }
-      byte[] bytes = fieldType.toBytes(upperValue);
+      byte[] bytes = FieldTypes.toBytes(upperValue, fieldType);
       totalSize += bytes.length;
       values.add(bytes);
       if (!condition.isSingleValue()) {
@@ -421,14 +421,14 @@ public class PartitionedFileSetDataset extends AbstractDataset implements Partit
         offset++;
       }
       first = false;
-      int size = fieldType.determineLengthInBytes(rowKey, offset);
+      int size = FieldTypes.determineLengthInBytes(rowKey, offset, fieldType);
       if (size + offset > rowKey.length) {
         throw new IllegalArgumentException(
           String.format("Invalid row key: Expecting field '%s' of type %s, " +
                           "requiring %d bytes at offset %d, but only %d bytes remain.",
                         fieldName, fieldType.name(), size, offset, rowKey.length - offset));
       }
-      Comparable fieldValue = fieldType.fromBytes(rowKey, offset, size);
+      Comparable fieldValue = FieldTypes.fromBytes(rowKey, offset, size, fieldType);
       offset += size;
       @SuppressWarnings({ "unchecked", "unused" }) // we know it's type safe, but Java does not
       PartitionKey.Builder unused = builder.addField(fieldName, fieldValue);
@@ -452,6 +452,7 @@ public class PartitionedFileSetDataset extends AbstractDataset implements Partit
     }
     return filter.match(key);
   }
+
 
 
 }

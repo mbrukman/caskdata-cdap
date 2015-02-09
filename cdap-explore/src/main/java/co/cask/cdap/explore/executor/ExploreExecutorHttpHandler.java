@@ -32,6 +32,7 @@ import co.cask.cdap.api.dataset.lib.Partitioning;
 import co.cask.cdap.api.dataset.lib.TimePartitionedFileSet;
 import co.cask.cdap.common.conf.Constants;
 import co.cask.cdap.data2.dataset2.DatasetFramework;
+import co.cask.cdap.data2.dataset2.lib.partitioned.FieldTypes;
 import co.cask.cdap.data2.transaction.stream.StreamAdmin;
 import co.cask.cdap.data2.transaction.stream.StreamConfig;
 import co.cask.cdap.explore.schema.SchemaConverter;
@@ -573,7 +574,7 @@ public class ExploreExecutorHttpHandler extends AbstractHttpHandler {
     String sep = "";
     StringBuilder builder = new StringBuilder("(");
     for (Map.Entry<String, Partitioning.FieldType> entry : partitioning.getFields().entrySet()) {
-      builder.append(sep).append(entry.getKey()).append(" ").append(entry.getValue().toHiveType());
+      builder.append(sep).append(entry.getKey()).append(" ").append(FieldTypes.toHiveType(entry.getValue()));
       sep = ", ";
     }
     builder.append(")");
