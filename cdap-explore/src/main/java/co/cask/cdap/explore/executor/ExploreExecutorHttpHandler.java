@@ -418,8 +418,10 @@ public class ExploreExecutorHttpHandler extends AbstractHttpHandler {
     }
   }
 
-  @DELETE
-  @Path("/datasets/{dataset}/partitions")
+  // TODO this should really be a DELETE request. However, the partition key must be passed in the body
+  // TODO of the request, and that does not seem to work with netty-http. So, using a POST for now.
+  @POST
+  @Path("/datasets/{dataset}/partitions/delete")
   public void dropPartition(HttpRequest request, HttpResponder responder,
                             @PathParam("dataset") final String datasetName) {
     try {
@@ -571,7 +573,7 @@ public class ExploreExecutorHttpHandler extends AbstractHttpHandler {
     String sep = "";
     StringBuilder builder = new StringBuilder("(");
     for (Map.Entry<String, Partitioning.FieldType> entry : partitioning.getFields().entrySet()) {
-      builder.append(sep).append(entry).append(" ").append(entry.getValue().name());
+      builder.append(sep).append(entry.getKey()).append(" ").append(entry.getValue().toHiveType());
       sep = ", ";
     }
     builder.append(")");

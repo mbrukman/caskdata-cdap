@@ -142,8 +142,8 @@ abstract class ExploreHttpClient implements Explore {
   protected QueryHandle doDropPartition(String datasetName, PartitionKey key) throws ExploreException {
     Map<String, String> args = Maps.newHashMap();
     PartitionedFileSetArguments.setOutputPartitionKey(args, key);
-    HttpResponse response = doDelete(String.format("data/explore/datasets/%s/partitions", datasetName),
-                                     GSON.toJson(args));
+    HttpResponse response = doPost(String.format("data/explore/datasets/%s/partitions/delete", datasetName),
+                                     GSON.toJson(args), null);
     if (response.getResponseCode() == HttpURLConnection.HTTP_OK) {
       return QueryHandle.fromId(parseResponseAsMap(response, "handle"));
     }
@@ -389,10 +389,6 @@ abstract class ExploreHttpClient implements Explore {
 
   private HttpResponse doDelete(String resource) throws ExploreException {
     return doRequest(resource, "DELETE", null, null);
-  }
-
-  private HttpResponse doDelete(String resource, String body) throws ExploreException {
-    return doRequest(resource, "DELETE", null, body);
   }
 
   private HttpResponse doRequest(String resource, String requestMethod,
