@@ -1,5 +1,5 @@
 /*
- * Copyright © 2014 Cask Data, Inc.
+ * Copyright © 2014-2015 Cask Data, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not
  * use this file except in compliance with the License. You may obtain a copy of
@@ -42,6 +42,7 @@ import co.cask.cdap.data2.util.hbase.ConfigurationTable;
 import co.cask.cdap.data2.util.hbase.HBaseTableUtilFactory;
 import co.cask.cdap.explore.client.ExploreClient;
 import co.cask.cdap.explore.guice.ExploreClientModule;
+import co.cask.cdap.explore.security.HiveSecureStoreUpdater;
 import co.cask.cdap.explore.service.ExploreServiceUtils;
 import co.cask.cdap.gateway.auth.AuthModule;
 import co.cask.cdap.internal.app.services.AppFabricServer;
@@ -125,7 +126,8 @@ public class MasterServiceMain extends DaemonMain {
   private MetricsCollectionService metricsCollectionService;
   private DatasetService dsService;
   private ServiceStore serviceStore;
-  private HBaseSecureStoreUpdater secureStoreUpdater;
+  private HBaseSecureStoreUpdater hbaseSecureStoreUpdater;
+  private HiveSecureStoreUpdater hiveSecureStoreUpdater;
   private ExploreClient exploreClient;
 
   private String serviceName;
@@ -179,9 +181,11 @@ public class MasterServiceMain extends DaemonMain {
     kafkaClientService = baseInjector.getInstance(KafkaClientService.class);
     metricsCollectionService = baseInjector.getInstance(MetricsCollectionService.class);
     dsService = baseInjector.getInstance(DatasetService.class);
-    exploreClient = baseInjector.getInstance(ExploreClient.class);
-    secureStoreUpdater = baseInjector.getInstance(HBaseSecureStoreUpdater.class);
     serviceStore = baseInjector.getInstance(ServiceStore.class);
+    exploreClient = baseInjector.getInstance(ExploreClient.class);
+
+    hbaseSecureStoreUpdater = baseInjector.getInstance(HBaseSecureStoreUpdater.class);
+    hiveSecureStoreUpdater = baseInjector.getInstance(HiveSecureStoreUpdater.class);
 
     checkTransactionRequirements();
     checkExploreRequirements();
@@ -209,7 +213,7 @@ public class MasterServiceMain extends DaemonMain {
     }
 
     // This checking will throw an exception if Hive is not present or if its distribution is unsupported
-    ExploreServiceUtils.checkHiveSupportWithSecurity(hConf);
+    ExploreServiceUtils.checkHiveSupportWithSecurity();
   }
 
   @Override
@@ -366,15 +370,21 @@ public class MasterServiceMain extends DaemonMain {
 
   private void scheduleSecureStoreUpdate(TwillRunner twillRunner) {
     if (User.isHBaseSecurityEnabled(hConf)) {
-      twillRunner.scheduleSecureStoreUpdate(secureStoreUpdater, 30000L, secureStoreUpdater.getUpdateInterval(),
+//      twillRunner.scheduleSecureStoreUpdate(secureStoreUpdater, 30000L, secureStoreUpdater.getUpdateInterval(),
+//                                            TimeUnit.MILLISECONDS);
+      twillRunner.scheduleSecureStoreUpdate(hiveSecureStoreUpdater, 3000L, hiveSecureStoreUpdater.getUpdateInterval(),
                                             TimeUnit.MILLISECONDS);
     }
-  }
 
+//    if (User.isSecurityEnabled()) {
+        // TODO add schedule for hive secure store to refresh the tokens as well
+//    }
+  }
 
   private TwillPreparer prepare(TwillPreparer preparer) {
     return preparer.withDependencies(new HBaseTableUtilFactory().get().getClass())
-      .addSecureStore(secureStoreUpdater.update(null, null)); // HBaseSecureStoreUpdater.update() ignores parameters
+      // HBaseSecureStoreUpdater.update() ignores parameters
+      .addSecureStore(hbaseSecureStoreUpdater.update(null, null));
   }
 
   private void runTwillApps() {
@@ -516,6 +526,10 @@ public class MasterServiceMain extends DaemonMain {
         }
       }
     }
+
+    // TODO only put that when Hive is secure
+    // HiveSecureStoreUpdater.update() ignores parameters
+    preparer.addSecureStore(hiveSecureStoreUpdater.update(null, null));
 
     return preparer;
   }

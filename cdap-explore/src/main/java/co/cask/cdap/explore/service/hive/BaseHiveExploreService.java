@@ -1,5 +1,5 @@
 /*
- * Copyright © 2014 Cask Data, Inc.
+ * Copyright © 2014-2015 Cask Data, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not
  * use this file except in compliance with the License. You may obtain a copy of
@@ -20,6 +20,7 @@ import co.cask.cdap.common.conf.CConfiguration;
 import co.cask.cdap.common.conf.Constants;
 import co.cask.cdap.data2.dataset2.DatasetFramework;
 import co.cask.cdap.data2.transaction.stream.StreamAdmin;
+import co.cask.cdap.explore.service.CLIService;
 import co.cask.cdap.explore.service.ExploreException;
 import co.cask.cdap.explore.service.ExploreService;
 import co.cask.cdap.explore.service.HandleNotFoundException;
@@ -58,6 +59,10 @@ import com.google.common.reflect.TypeToken;
 import com.google.common.util.concurrent.AbstractIdleService;
 import com.google.gson.Gson;
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.fs.permission.FsPermission;
+import org.apache.hadoop.hdfs.protocolPB.ClientNamenodeProtocolPB;
+import org.apache.hadoop.hive.common.FileUtils;
 import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.hadoop.hive.metastore.HiveMetaStoreClient;
 import org.apache.hadoop.hive.metastore.IMetaStoreClient;
@@ -65,7 +70,20 @@ import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.hadoop.hive.metastore.api.MetaException;
 import org.apache.hadoop.hive.metastore.api.NoSuchObjectException;
 import org.apache.hadoop.hive.metastore.api.Table;
-import org.apache.hive.service.cli.CLIService;
+import org.apache.hadoop.hive.ql.Context;
+import org.apache.hadoop.hive.ql.exec.TaskRunner;
+import org.apache.hadoop.hive.ql.exec.Utilities;
+import org.apache.hadoop.hive.shims.ShimLoader;
+import org.apache.hadoop.io.Text;
+import org.apache.hadoop.security.Credentials;
+import org.apache.hadoop.security.SaslRpcServer;
+import org.apache.hadoop.security.SecurityUtil;
+import org.apache.hadoop.security.UserGroupInformation;
+import org.apache.hadoop.security.token.Token;
+import org.apache.hadoop.security.token.TokenIdentifier;
+import org.apache.hadoop.security.token.TokenInfo;
+import org.apache.hadoop.security.token.TokenSelector;
+import org.apache.hive.service.auth.HiveAuthFactory;
 import org.apache.hive.service.cli.ColumnDescriptor;
 import org.apache.hive.service.cli.FetchOrientation;
 import org.apache.hive.service.cli.GetInfoType;
@@ -74,6 +92,8 @@ import org.apache.hive.service.cli.HiveSQLException;
 import org.apache.hive.service.cli.OperationHandle;
 import org.apache.hive.service.cli.SessionHandle;
 import org.apache.hive.service.cli.TableSchema;
+import org.apache.hive.service.cli.session.HiveSession;
+import org.apache.hive.service.cli.session.HiveSessionProxy;
 import org.apache.hive.service.cli.thrift.TColumnValue;
 import org.apache.hive.service.cli.thrift.TRow;
 import org.apache.hive.service.cli.thrift.TRowSet;
@@ -90,8 +110,12 @@ import java.io.Reader;
 import java.lang.ref.Reference;
 import java.lang.ref.ReferenceQueue;
 import java.lang.ref.WeakReference;
+import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.lang.reflect.Proxy;
+import java.net.URI;
+import java.security.PrivilegedExceptionAction;
 import java.sql.SQLException;
 import java.util.Collections;
 import java.util.List;
@@ -118,6 +142,7 @@ public abstract class BaseHiveExploreService extends AbstractIdleService impleme
   private static final Gson GSON = new Gson();
   private static final int PREVIEW_COUNT = 5;
   private static final long METASTORE_CLIENT_CLEANUP_PERIOD = 60;
+  public static final String HIVE_METASTORE_TOKEN_KEY = "hive.metastore.token.signature";
 
   private final CConfiguration cConf;
   private final Configuration hConf;
@@ -229,7 +254,22 @@ public abstract class BaseHiveExploreService extends AbstractIdleService impleme
   @Override
   protected void startUp() throws Exception {
     LOG.info("Starting {}...", BaseHiveExploreService.class.getSimpleName());
-    cliService.init(getHiveConf());
+
+    HiveConf conf = getHiveConf();
+    // Read delegation token if security is enabled.
+    if (ShimLoader.getHadoopShims().isSecurityEnabled()) {
+      conf.set(HIVE_METASTORE_TOKEN_KEY, HiveAuthFactory.HS2_CLIENT_TOKEN);
+
+      String hadoopAuthToken =
+        System.getenv(ShimLoader.getHadoopShims().getTokenFileLocEnvName());
+      if (hadoopAuthToken != null) {
+        conf.set("mapreduce.job.credentials.binary", hadoopAuthToken);
+      }
+    }
+
+    LOG.info("HIVE_METASTORE_TOKEN_KEY: {}", conf.get(HIVE_METASTORE_TOKEN_KEY));
+    LOG.info("mapreduce.job.credentials.binary: {}", conf.get("mapreduce.job.credentials.binary"));
+    cliService.init(conf);
     cliService.start();
 
     metastoreClientsExecutorService.scheduleWithFixedDelay(
@@ -596,8 +636,177 @@ public abstract class BaseHiveExploreService extends AbstractIdleService impleme
 
     try {
       Map<String, String> sessionConf = startSession();
-      // It looks like the username and password below is not used when security is disabled in Hive Server2.
-      SessionHandle sessionHandle = cliService.openSession("", "", sessionConf);
+      SessionHandle sessionHandle;
+
+      // Read delegation token if security is enabled.
+      if (ShimLoader.getHadoopShims().isSecurityEnabled()) {
+        LOG.info("Metastore SASL enabled");
+        Credentials credentials = UserGroupInformation.getCurrentUser().getCredentials();
+        if (credentials == null) {
+          String message = "Cannot get credentials to get Hive MetaStore delegation token";
+          LOG.error(message);
+          throw new ExploreException(message);
+        }
+
+        LOG.info("Credentials:");
+        for (Token t : credentials.getAllTokens()) {
+          LOG.info("{}", t);
+        }
+
+        Token<? extends TokenIdentifier> delegationToken =
+          credentials.getToken(new Text(HiveAuthFactory.HS2_CLIENT_TOKEN));
+        if (delegationToken == null) {
+          String message = String.format(
+            "Cannot get delegation token for Hive MetaStore from credentials for service %s",
+            HiveAuthFactory.HS2_CLIENT_TOKEN);
+          LOG.error(message);
+          throw new ExploreException(message);
+        }
+
+        String hadoopAuthToken =
+          System.getenv(ShimLoader.getHadoopShims().getTokenFileLocEnvName());
+        sessionConf.put("mapreduce.job.credentials.binary", hadoopAuthToken);
+
+        UserGroupInformation.getCurrentUser().setAuthenticationMethod(SaslRpcServer.AuthMethod.TOKEN);
+        UserGroupInformation.getLoginUser().setAuthenticationMethod(SaslRpcServer.AuthMethod.TOKEN);
+
+        LOG.warn("Token for current user: {}", UserGroupInformation.getCurrentUser().getTokens());
+        LOG.warn("Token for login user: {}", UserGroupInformation.getLoginUser().getTokens());
+
+        final Configuration conf = new HiveConf();
+        String hdfsAddr = conf.get("fs.defaultFS");
+
+        LOG.warn("Task runner id is: {}", TaskRunner.getTaskRunnerID());
+        Path scratchDir = FileUtils.makeQualified(new Path(HiveConf.getVar(conf, HiveConf.ConfVars.SCRATCHDIR),
+                                                    Context.generateExecutionId()), conf);
+        Path testPath = new Path("/tmp/hive-yarn-yarn/", "hive_2014-11-03_22-30-55_898_6088858751068125188-new");
+
+        LOG.warn("Scratch dir is: {}", testPath);
+        URI uri = testPath.toUri();
+        final Path dirPath = new Path(uri.getScheme(), uri.getAuthority(),
+                                uri.getPath() + "-" + TaskRunner.getTaskRunnerID());
+        LOG.warn("Dir path is: {}", dirPath);
+
+        LOG.info("Misc UGI values:");
+        LOG.info("UGI#isLoginKeyTabBased: {}", UserGroupInformation.isLoginKeytabBased());
+        LOG.info("UGI#isSecurityEnabled: {}", UserGroupInformation.isSecurityEnabled());
+        LOG.info("UGI#getLoginUser: {}", UserGroupInformation.getLoginUser());
+        LOG.info("UGI#getCurrentUser: {}", UserGroupInformation.getCurrentUser());
+        LOG.info("UGI#getCurrentUser.getRealUser: {}", UserGroupInformation.getCurrentUser().getRealUser());
+        LOG.info("UGI#getLoginUser.getAuthenticationMethod: {}",
+                 UserGroupInformation.getLoginUser().getAuthenticationMethod());
+        LOG.info("UGI#getCurrentUser.getAuthenticationMethod: {}",
+                 UserGroupInformation.getCurrentUser().getAuthenticationMethod());
+        LOG.info("UGI#getLoginUser.hasKerberosCredentials: {}",
+                 UserGroupInformation.getLoginUser().hasKerberosCredentials());
+        LOG.info("ShimLoader.getHadoopShims().isSecurityEnabled(): {}",
+                 ShimLoader.getHadoopShims().isSecurityEnabled());
+
+
+        HiveAuthFactory.verifyProxyAccess(UserGroupInformation.getCurrentUser().getUserName(),
+                                          UserGroupInformation.getCurrentUser().getUserName(),
+                                          "10.240.249.204", hiveConf);
+        UserGroupInformation sessionUGI =
+          ShimLoader.getHadoopShims().createProxyUser(UserGroupInformation.getCurrentUser().getUserName());
+        sessionUGI.addCredentials(credentials);
+        LOG.info("UGI for proxyUser with credentials:");
+        LOG.info("proxyUser#getAuthenticationMethod: {}",
+                 sessionUGI.getAuthenticationMethod());
+        LOG.info("proxyUser#getRealAuthenticationMethod: {}",
+                 sessionUGI.getRealAuthenticationMethod());
+        LOG.info("proxyUser#hasKerberosCredentials: {}",
+                 sessionUGI.hasKerberosCredentials());
+        LOG.info("proxyUser#getCredentials: {}",
+                 sessionUGI.getCredentials());
+
+        LOG.info("Credentials for proxy user:");
+        for (Token t : sessionUGI.getCredentials().getAllTokens()) {
+          LOG.info("{}", t);
+        }
+
+        LOG.info("Attempting to create as proxy user:");
+        sessionUGI.doAs(new PrivilegedExceptionAction<Object>() {
+          @Override
+          public Object run() throws Exception {
+            if (!Utilities.createDirsWithPermission(conf, dirPath, new FsPermission("755"))) {
+              LOG.error("Cannot create directory {}", dirPath);
+            } else {
+              LOG.error("Created directory successfully: {}", dirPath);
+            }
+            return null;
+          }
+        });
+
+        LOG.info("Attempting to create as currentUser:");
+        UserGroupInformation.getCurrentUser().doAs(new PrivilegedExceptionAction<Object>() {
+          @Override
+          public Object run() throws Exception {
+            if (!Utilities.createDirsWithPermission(conf, dirPath, new FsPermission("755"))) {
+              LOG.error("Cannot create directory {}", dirPath);
+            } else {
+              LOG.error("Created directory successfully: {}", dirPath);
+            }
+            return null;
+          }
+        });
+
+        TokenInfo tokenInfo = SecurityUtil.getTokenInfo(ClientNamenodeProtocolPB.class, conf);
+        LOG.warn("Get token info proto:" + ClientNamenodeProtocolPB.class + " info:" + tokenInfo);
+        if (tokenInfo == null) { // protocol has no support for tokens
+          LOG.warn("Token is null");
+        }
+        try {
+          TokenSelector<?> tokenSelector = tokenInfo.value().newInstance();
+          Token<? extends TokenIdentifier> token =
+            tokenSelector.selectToken(SecurityUtil.buildTokenService(new URI(hdfsAddr + ":8020")),
+                                      UserGroupInformation.getCurrentUser().getTokens());
+          LOG.warn("Selected token is: {}", token);
+        } catch (InstantiationException e) {
+          throw new IOException(e.toString());
+        } catch (IllegalAccessException e) {
+          throw new IOException(e.toString());
+        }
+
+        // Read delegation token if security is enabled.
+        sessionConf.put(HIVE_METASTORE_TOKEN_KEY, HiveAuthFactory.HS2_CLIENT_TOKEN);
+        sessionHandle = cliService.openSession(UserGroupInformation.getCurrentUser().getUserName(),
+                                                                "", sessionConf);
+        HiveSession session = cliService.getSession(sessionHandle);
+        LOG.info("HiveSession class: {}", session.getClass().getCanonicalName());
+
+        if (session instanceof Proxy) {
+          LOG.info("Setting credentials for HiveSessionProxy");
+          LOG.info("Invocation handler class: {}",
+                   Proxy.getInvocationHandler(session).getClass().getCanonicalName());
+          Field field = HiveSessionProxy.class.getDeclaredField("ugi");
+          field.setAccessible(true);
+
+          UserGroupInformation hiveSessionUGI =
+            (UserGroupInformation) field.get(Proxy.getInvocationHandler(session));
+          hiveSessionUGI.addCredentials(credentials);
+
+          LOG.info("Attempting to create as HiveSessionProxy:");
+          hiveSessionUGI.doAs(new PrivilegedExceptionAction<Object>() {
+            @Override
+            public Object run() throws Exception {
+              dirPath.suffix("-UGI");
+              if (!Utilities.createDirsWithPermission(conf, dirPath, new FsPermission("755"))) {
+                LOG.error("Cannot create directory {}", dirPath);
+              } else {
+                LOG.error("Created directory successfully: {}", dirPath);
+              }
+              return null;
+            }
+          });
+        } else {
+          LOG.info("Could not attempt creation as HiveSessionProxy since it isn't an instanceOf");
+        }
+//        sessionHandle = cliService.openSession("", "", sessionConf);
+      } else {
+        // It looks like the username and password below is not used when security is disabled in Hive Server2.
+        sessionHandle = cliService.openSession("", "", sessionConf);
+      }
+
       try {
         OperationHandle operationHandle = doExecute(sessionHandle, statement);
         QueryHandle handle = saveOperationInfo(operationHandle, sessionHandle, sessionConf, statement);
@@ -1130,7 +1339,7 @@ public abstract class BaseHiveExploreService extends AbstractIdleService impleme
     }
   }
 
-  private static class InactiveOperationInfo extends OperationInfo {
+  private static final class InactiveOperationInfo extends OperationInfo {
     private final List<ColumnDesc> schema;
     private final QueryStatus status;
 
