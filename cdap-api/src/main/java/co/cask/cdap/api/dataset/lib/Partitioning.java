@@ -34,21 +34,29 @@ public class Partitioning {
    */
   public enum FieldType {
     STRING {
+      @Override
       public String parse(String value) {
         return value;
       }
     },
     LONG {
+      @Override
       public Long parse(String value) {
         return Long.parseLong(value);
       }
     },
     INT {
+      @Override
       public Integer parse(String value) {
         return Integer.parseInt(value);
       }
     };
 
+    /**
+     * Parse a string into a value of this field type. For example, {@link FieldType#INT} delegates this
+     * to {@link Integer#parseInt}.
+     * @param value the string to parse
+     */
     public abstract Comparable parse(String value);
   }
 

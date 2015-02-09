@@ -124,7 +124,6 @@ public class FieldTypes {
     }
     throw new IllegalArgumentException(String.format(
       "Incompatible value %s of type %s for field type %s.", value, value.getClass(), type.name()));
-
   }
 
   /**

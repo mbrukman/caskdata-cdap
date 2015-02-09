@@ -122,7 +122,7 @@ public class PartitioningTest {
     byte[][] byteValues = new byte[values.length][];
     int index = 0;
     for (Comparable value : values) {
-      FieldTypes.validateType(value, type);
+      Assert.assertTrue(FieldTypes.validateType(value, type));
       byte[] byteValue = FieldTypes.toBytes(value, type);
       int determined = FieldTypes.determineLengthInBytes(byteValue, 0, type);
       Assert.assertEquals(byteValue.length, determined);
