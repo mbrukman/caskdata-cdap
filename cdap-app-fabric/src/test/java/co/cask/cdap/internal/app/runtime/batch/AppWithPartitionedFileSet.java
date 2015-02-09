@@ -100,7 +100,7 @@ public class AppWithPartitionedFileSet extends AbstractApplication {
     public void onFinish(boolean succeeded, MapReduceContext context) throws Exception {
       if (succeeded) {
         PartitionedFileSet ds = context.getDataset(PARTITIONED);
-        String outputPath = FileSetArguments.getOutputPath(ds.getUnderlyingFileSet().getRuntimeArguments());
+        String outputPath = FileSetArguments.getOutputPath(ds.getEmbeddedFileSet().getRuntimeArguments());
         PartitionKey key = PartitionedFileSetArguments.
           getOutputPartitionKey(ds.getRuntimeArguments(), ds.getPartitioning());
         Preconditions.checkNotNull(key, "Output partition key is null.");

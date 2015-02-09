@@ -534,7 +534,7 @@ public class ExploreExecutorHttpHandler extends AbstractHttpHandler {
       baseLocation = ((TimePartitionedFileSet) dataset).getUnderlyingFileSet().getBaseLocation();
     } else if (dataset instanceof PartitionedFileSet) {
       partitioned = "PARTITIONED BY " + toHivePartitioning(((PartitionedFileSet) dataset).getPartitioning());
-      baseLocation = ((PartitionedFileSet) dataset).getUnderlyingFileSet().getBaseLocation();
+      baseLocation = ((PartitionedFileSet) dataset).getEmbeddedFileSet().getBaseLocation();
     } else {
       partitioned = "";
       baseLocation = ((FileSet) dataset).getBaseLocation();

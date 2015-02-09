@@ -256,7 +256,7 @@ public class PartitionedFileSetDataset extends AbstractDataset implements Partit
   }
 
   @Override
-  public FileSet getUnderlyingFileSet() {
+  public FileSet getEmbeddedFileSet() {
     return files;
   }
 
@@ -430,8 +430,7 @@ public class PartitionedFileSetDataset extends AbstractDataset implements Partit
       }
       Comparable fieldValue = FieldTypes.fromBytes(rowKey, offset, size, fieldType);
       offset += size;
-      @SuppressWarnings({ "unchecked", "unused" }) // we know it's type safe, but Java does not
-      PartitionKey.Builder unused = builder.addField(fieldName, fieldValue);
+      builder.addField(fieldName, fieldValue);
     }
     if (offset != rowKey.length) {
       throw new IllegalArgumentException(

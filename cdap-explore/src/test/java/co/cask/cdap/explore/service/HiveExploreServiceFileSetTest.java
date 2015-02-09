@@ -158,7 +158,7 @@ public class HiveExploreServiceFileSetTest extends BaseHiveExploreServiceTest {
     // Accessing dataset instance to perform data operations
     PartitionedFileSet partitioned = datasetFramework.getDataset(datasetName, DatasetDefinition.NO_ARGUMENTS, null);
     Assert.assertNotNull(partitioned);
-    FileSet fileSet = partitioned.getUnderlyingFileSet();
+    FileSet fileSet = partitioned.getEmbeddedFileSet();
 
     // add some partitions. Beware that Hive expects a partition to be a directory, so we create dirs with one file
     Location locationX1 = fileSet.getLocation("fileX1/nn");
