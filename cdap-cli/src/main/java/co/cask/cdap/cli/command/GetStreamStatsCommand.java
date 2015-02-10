@@ -168,7 +168,7 @@ public class GetStreamStatsCommand extends AbstractCommand {
   }
 
   private String cdapSchemaColumName2HiveColumnName(String streamId, String schemaColumName) {
-    return getHiveTableName(streamId) + "." + schemaColumName;
+    return (getHiveTableName(streamId) + "." + schemaColumName).toLowerCase();
   }
 
   private Set<StatsProcessor> getProcessorsForType(Schema.Type type, List<Schema> unionSchemas) {
