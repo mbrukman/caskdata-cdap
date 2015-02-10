@@ -29,6 +29,7 @@ import co.cask.cdap.proto.ColumnDesc;
 import co.cask.cdap.proto.QueryResult;
 import co.cask.cdap.proto.StreamProperties;
 import co.cask.common.cli.Arguments;
+import com.google.common.base.Strings;
 import com.google.common.collect.HashMultiset;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
@@ -40,6 +41,7 @@ import com.google.inject.Inject;
 
 import java.io.PrintStream;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -256,6 +258,10 @@ public class GetStreamStatsCommand extends AbstractCommand {
    * Reports a histogram of elements found.
    */
   private static final class HistogramProcessor implements StatsProcessor {
+
+    private static final int MIN_BAR_WIDTH = 5;
+    private static final int MAX_PRINT_WIDTH = 80;
+
     // 0 -> [0, 99], 1 -> [100, 199], etc. (bucket size is BUCKET_SIZE)
     private final Multiset<Integer> buckets = HashMultiset.create();
     private static final int BUCKET_SIZE = 100;
@@ -276,12 +282,88 @@ public class GetStreamStatsCommand extends AbstractCommand {
         List<Integer> sortedBuckets = Lists.newArrayList(buckets.elementSet());
         Collections.sort(sortedBuckets);
 
-        for (Integer bucket : sortedBuckets) {
-          int startInclusive = bucket * BUCKET_SIZE;
-          int endInclusive = startInclusive + (BUCKET_SIZE - 1);
-          printStream.printf("  [%d, %d]: %d", startInclusive, endInclusive, buckets.count(bucket));
+        int maxCount = getBiggestBucket().getCount();
+        int longestPrefix = getLongestBucketPrefix();
+        // max length of the bar
+        int maxBarLength = Math.max(MIN_BAR_WIDTH, MAX_PRINT_WIDTH - longestPrefix);
+
+        for (Integer bucketIndex : sortedBuckets) {
+          Bucket bucket = new Bucket(bucketIndex, buckets.count(bucketIndex));
+          // print padded prefix: e.g. "  [100, 199]: 123    "
+          printStream.print(padRight(bucket.getPrefix(), longestPrefix));
+          // print the bar: e.g. ============>
+          // TODO: determine barLength differently to show difference between 0 and low counts more clearly
+          int barLength = (int) ((bucket.getCount() * 1.0 / maxCount) * maxBarLength);
+          if (barLength == 1) {
+            printStream.print(">");
+          } else if (barLength > 1) {
+            printStream.print(Strings.repeat("=", barLength - 1) + ">");
+          }
           printStream.println();
         }
+      }
+    }
+
+    private Bucket getBiggestBucket() {
+      Bucket biggestBucket = null;
+      for (Integer bucketIndex : buckets.elementSet()) {
+        Bucket bucket = new Bucket(bucketIndex, buckets.count(bucketIndex));
+        if (biggestBucket == null || bucket.getCount() > biggestBucket.getCount()) {
+          biggestBucket = bucket;
+        }
+      }
+      return biggestBucket;
+    }
+
+    private String padRight(String string, int padding) {
+      return String.format("%1$-" + padding + "s", string);
+    }
+
+    private int getLongestBucketPrefix() {
+      int longestBucket = Collections.max(buckets.elementSet(), new Comparator<Integer>() {
+        @Override
+        public int compare(Integer o1, Integer o2) {
+          return (Integer.toString(o1 * BUCKET_SIZE).length() * 2 + buckets.count(o1))
+            - (Integer.toString(o2 * BUCKET_SIZE).length() * 2 + buckets.count(o2));
+        }
+      });
+      Bucket bucket = new Bucket(longestBucket, buckets.count(longestBucket));
+      return bucket.getPrefix().length();
+    }
+
+    /**
+     *
+     */
+    private static final class Bucket {
+      /**
+       * index into {@link GetStreamStatsCommand.HistogramProcessor#buckets}
+       */
+      private final int index;
+      private final int count;
+
+      private Bucket(int index, int count) {
+        this.index = index;
+        this.count = count;
+      }
+
+      public int getIndex() {
+        return index;
+      }
+
+      public int getCount() {
+        return count;
+      }
+
+      public int getStartInclusive() {
+        return index * BUCKET_SIZE;
+      }
+
+      public int getEndInclusive() {
+        return getStartInclusive() + (BUCKET_SIZE - 1);
+      }
+
+      public String getPrefix() {
+        return String.format("  [%d, %d]: %d  ", getStartInclusive(), getEndInclusive(), count);
       }
     }
   }
