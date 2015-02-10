@@ -294,10 +294,12 @@ public class GetStreamStatsCommand extends AbstractCommand {
           // print the bar: e.g. ============>
           // TODO: determine barLength differently to show difference between 0 and low counts more clearly
           int barLength = (int) ((bucket.getCount() * 1.0 / maxCount) * maxBarLength);
-          if (barLength == 1) {
-            printStream.print(">");
+          if (barLength == 0) {
+            printStream.print("|");
+          } else if (barLength == 1) {
+            printStream.print("|>");
           } else if (barLength > 1) {
-            printStream.print(Strings.repeat("=", barLength - 1) + ">");
+            printStream.print("|" + Strings.repeat("=", barLength - 2) + ">");
           }
           printStream.println();
         }
