@@ -224,7 +224,7 @@ public class GetStreamStatsCommand extends AbstractCommand {
   }
 
   /**
-   * Processes elements within a Hive column into a report.
+   * Processes elements within a Hive column and prints out a report about the elements visited.
    */
   private interface StatsProcessor {
     void process(Object element);
