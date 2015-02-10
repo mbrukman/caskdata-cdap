@@ -1071,7 +1071,7 @@
     <property>
         <name>security.server.extended.token.expiration.ms</name>
         <value>604800000</value>
-        <description>Admin Tools AccessToken expiration time in milliseconds (defaults to 
+        <description>Admin Tools AccessToken expiration time in milliseconds (defaults to
         1 week) (internal)</description>
     </property>
 
@@ -1151,4 +1151,24 @@
   </property>
 
 
+  <property>
+    <name>security.enabled</name>
+    <value>true</value>
+  </property>
+  <property>
+    <name>security.authorization.enabled</name>
+    <value>true</value>
+  </property>
+  <property>
+    <name>security.admins</name>
+    <value>config_admin</value>
+  </property>
+  <property>
+    <name>security.authentication.handlerClassName</name>
+    <value>co.cask.cdap.security.server.BasicAuthenticationHandler</value>
+  </property>
+  <property>
+    <name>security.authentication.basic.realmfile</name>
+    <value>/opt/cdap/realmfile</value>
+  </property>
 </configuration>
