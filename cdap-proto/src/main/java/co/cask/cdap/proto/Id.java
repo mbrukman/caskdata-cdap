@@ -17,6 +17,7 @@
 package co.cask.cdap.proto;
 
 import com.google.common.base.CharMatcher;
+import com.google.common.base.Charsets;
 import com.google.common.base.Objects;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Splitter;
@@ -361,6 +362,9 @@ public final class Id  {
     private final Namespace namespace;
     private final String streamName;
 
+    private final String id;
+    private final byte[] idBytes;
+
     private Stream(final Namespace namespace, final String streamName) {
       Preconditions.checkNotNull(namespace, "Namespace cannot be null.");
       Preconditions.checkNotNull(streamName, "Stream name cannot be null.");
@@ -369,6 +373,9 @@ public final class Id  {
 
       this.namespace = namespace;
       this.streamName = streamName;
+
+      id = String.format("%s.%s", namespace.getId(), streamName);
+      idBytes = id.getBytes(Charsets.US_ASCII);
     }
 
     public Namespace getNamespace() {
@@ -391,10 +398,6 @@ public final class Id  {
       return new Stream(Namespace.from(namespaceId), streamName);
     }
 
-    public String toId() {
-      return String.format("%s.%s", namespace.getId(), streamName);
-    }
-
     public static Stream fromId(String id) {
       Iterable<String> comps = Splitter.on('.').omitEmptyStrings().split(id);
       Preconditions.checkArgument(2 == Iterables.size(comps));
@@ -402,6 +405,14 @@ public final class Id  {
       String namespace = Iterables.get(comps, 0);
       String streamName = Iterables.get(comps, 1);
       return from(namespace, streamName);
+    }
+
+    public String toId() {
+      return id;
+    }
+
+    public byte[] toBytes() {
+      return idBytes;
     }
 
     @Override
