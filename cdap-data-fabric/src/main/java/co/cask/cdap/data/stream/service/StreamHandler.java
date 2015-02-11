@@ -45,8 +45,11 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.io.Closeables;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import com.google.gson.JsonDeserializationContext;
+import com.google.gson.JsonDeserializer;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
+import com.google.gson.JsonParseException;
 import com.google.gson.JsonSerializationContext;
 import com.google.gson.JsonSerializer;
 import com.google.inject.Inject;
@@ -339,13 +342,9 @@ public final class StreamHandler extends AuthenticatedHttpHandler {
 
     // Validate ttl
     Long ttl = properties.getTTL();
-    if (ttl != null) {
-      if (ttl < 0) {
-        responder.sendString(HttpResponseStatus.BAD_REQUEST, "TTL value should be positive.");
-        return null;
-      }
-      // TTL in the REST API is in seconds. Convert it to ms for the config.
-      ttl = TimeUnit.SECONDS.toMillis(ttl);
+    if (ttl != null && ttl < 0) {
+      responder.sendString(HttpResponseStatus.BAD_REQUEST, "TTL value should be positive.");
+      return null;
     }
 
     // Validate format
@@ -450,17 +449,39 @@ public final class StreamHandler extends AuthenticatedHttpHandler {
   }
 
   /**
-   *  Adapter class for {@link co.cask.cdap.proto.StreamProperties}
+   *  Adapter class for {@link co.cask.cdap.proto.StreamProperties}. Its main purpose is to transform
+   *  the unit of TTL, which is second in JSON, but millisecond in the StreamProperties object.
    */
-  private static final class StreamPropertiesAdapter implements JsonSerializer<StreamProperties> {
+  private static final class StreamPropertiesAdapter implements JsonSerializer<StreamProperties>,
+                                                                JsonDeserializer<StreamProperties> {
     @Override
     public JsonElement serialize(StreamProperties src, Type typeOfSrc, JsonSerializationContext context) {
       JsonObject json = new JsonObject();
       json.addProperty("name", src.getName());
-      json.addProperty("ttl", TimeUnit.MILLISECONDS.toSeconds(src.getTTL()));
-      json.add("format", context.serialize(src.getFormat(), FormatSpecification.class));
-      json.addProperty("threshold", src.getThreshold());
+      if (src.getTTL() != null) {
+        json.addProperty("ttl", TimeUnit.MILLISECONDS.toSeconds(src.getTTL()));
+      }
+      if (src.getFormat() != null) {
+        json.add("format", context.serialize(src.getFormat(), FormatSpecification.class));
+      }
+      if (src.getThreshold() != null) {
+        json.addProperty("threshold", src.getThreshold());
+      }
       return json;
+    }
+
+    @Override
+    public StreamProperties deserialize(JsonElement json, Type typeOfT,
+                                        JsonDeserializationContext context) throws JsonParseException {
+      JsonObject jsonObj = json.getAsJsonObject();
+      String name = jsonObj.getAsJsonPrimitive("name").getAsString();
+      Long ttl = jsonObj.has("ttl") ? TimeUnit.SECONDS.toMillis(jsonObj.get("ttl").getAsLong()) : null;
+      FormatSpecification format = null;
+      if (jsonObj.has("format")) {
+        format = context.deserialize(jsonObj.get("format"), FormatSpecification.class);
+      }
+      Integer threshold = jsonObj.has("threshold") ? jsonObj.get("threshold").getAsInt() : null;
+      return new StreamProperties(name, ttl, format, threshold);
     }
   }
 }
